@@ -9,9 +9,9 @@ pub enum RubyObject {
     Boolean(bool),
     FixNum(i32),
     Symbol(String),
-    // SymbolLink(u32),
-    // ObjectLink(u32),
-    // Array(Vec<RubyObject>),
+    SymbolLink(u32),
+    ObjectLink(u32),
+    Array(Vec<RubyObject>),
     // BigNum(i64), // TODO pick a better value
     // Class(String),
     // Module(String),
