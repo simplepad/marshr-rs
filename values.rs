@@ -1,17 +1,17 @@
-pub const I8_SIZE: usize = std::mem::size_of::<i8>();
-pub const I16_SIZE: usize = std::mem::size_of::<i16>();
-pub const I24_SIZE: usize = std::mem::size_of::<i32>() - std::mem::size_of::<i8>();
-pub const I32_SIZE: usize = std::mem::size_of::<i32>();
+use std::{cell::RefCell, rc::Rc};
+
+pub type Rrc<T> = Rc<RefCell<T>>;
+
+pub type ObjectID = usize;
+pub type SymbolID = usize;
 
 #[derive(PartialEq, Debug)]
-pub enum RubyObject {
+pub enum RubyValue {
     Nil,
     Boolean(bool),
     FixNum(i32),
-    Symbol(String),
-    SymbolLink(u32),
-    ObjectLink(u32),
-    Array(Vec<RubyObject>),
+    Symbol(SymbolID),
+    Array(ObjectID),
     // BigNum(i64), // TODO pick a better value
     // Class(String),
     // Module(String),
@@ -27,19 +27,42 @@ pub enum RubyObject {
     // UserMarshal(),
 }
 
+#[derive(PartialEq, Debug)]
+pub enum RubyObject {
+    Empty, // for the 0th element (ruby object index starts with 1)
+    Array(Vec<RubyValue>),
+}
+
 #[derive(Debug)]
 pub struct Root {
-    // object table
-    // symbol table
-    value: RubyObject
+    symbols: Vec<String>,
+    objects: Vec<RubyObject>,
+    root: RubyValue,
 }
 
 impl Root {
-    pub fn new(value: RubyObject) -> Self {
-        Self {value}
+    pub fn new(root: RubyValue, symbols: Vec<String>, objects: Vec<RubyObject>) -> Self {
+        Self {root, symbols, objects}
     }
 
-    pub fn get_value(self) -> RubyObject {
-        self.value
+    pub fn get_root(&self) -> &RubyValue {
+        &self.root
+    }
+
+    pub fn get_symbols(&self) -> &Vec<String> {
+        &self.symbols
+    }
+
+    pub fn get_objects(&self) -> &Vec<RubyObject> {
+        &self.objects
+    }
+
+    pub fn get_symbol(&self, id: SymbolID) -> Option<&String> {
+        self.symbols.get(id)
+    }
+
+    pub fn get_object(&self, id: ObjectID) -> Option<&RubyObject> {
+        if id == 0 { return None; } // object ids start with 1
+        self.objects.get(id)
     }
 }
