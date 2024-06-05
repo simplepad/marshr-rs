@@ -22,7 +22,7 @@ pub enum RubyValue {
     HashWithDefault(ObjectID),
     // Object(RubyObject),
     // RegExp(String),
-    // RubyString(String),
+    String(ObjectID),
     // Struct(),
     // UserClass(),
     // UserDefined(),
@@ -39,6 +39,7 @@ pub enum RubyObject {
     Class(String),
     Module(String),
     ClassOrModule(String),
+    String(RubyString),
 }
 
 #[derive(Debug)]
@@ -104,5 +105,37 @@ impl Index<usize> for HashWithDefault {
 impl IndexMut<usize> for HashWithDefault {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         self.hash.get_mut(&index).unwrap_or(&mut self.default)
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct RubyString {
+    string: String,
+    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+}
+
+impl RubyString {
+    pub fn new(string: String) -> Self {
+        Self {string, instance_variables: None}
+    }
+
+    pub fn get_string(&self) -> &String {
+        &self.string
+    }
+
+    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+        self.instance_variables = Some(instance_variables);
+    }
+
+    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+        &self.instance_variables
+    }
+
+    pub fn get_instance_variable(&self, instance_variable: SymbolID) -> Option<&RubyValue> {
+        if let Some(instance_variables) = &self.instance_variables {
+            instance_variables.get(&instance_variable)
+        } else {
+            None
+        }
     }
 }

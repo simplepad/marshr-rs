@@ -70,6 +70,8 @@ impl<T: Read> Loader<T> {
             b'c' => RubyValue::Class(self.read_class()?),
             b'm' => RubyValue::Module(self.read_module()?),
             b'M' => RubyValue::ClassOrModule(self.read_class_or_module()?),
+            b'"' => RubyValue::String(self.read_string()?),
+            b'I' => self.read_value_with_instance_variables()?,
             _ => return Err(LoadError::ParserError(format!("Unknown value type: {}", buffer[0]))),
         };
 
@@ -203,6 +205,7 @@ impl<T: Read> Loader<T> {
                 RubyObject::Class(_) => RubyValue::Class(object_id),
                 RubyObject::Module(_) => RubyValue::Module(object_id),
                 RubyObject::ClassOrModule(_) => RubyValue::ClassOrModule(object_id),
+                RubyObject::String(_) => RubyValue::String(object_id),
             };
             Ok(ruby_value)
         } else {
@@ -273,6 +276,33 @@ impl<T: Read> Loader<T> {
 
         self.objects.push(RubyObject::ClassOrModule(class_or_module));
         Ok(self.objects.len()-1)
+    }
+
+    fn read_string(&mut self) -> Result<ObjectID, LoadError> {
+        let string = self.read_sequence()?;
+
+        self.objects.push(RubyObject::String(RubyString::new(string)));
+        Ok(self.objects.len()-1)
+    }
+
+    fn read_value_with_instance_variables(&mut self) -> Result<RubyValue, LoadError> {
+        let value = self.read_value()?;
+
+        let instance_variables = self.read_value_pairs()?;
+
+        match value {
+            RubyValue::String(object_id) => {
+                match &mut self.objects[object_id] {
+                    RubyObject::String(string) => {
+                        string.set_instance_variables(instance_variables);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            object => return Err(LoadError::ParserError(format!("Object {:?} doesn't support instance variables", object)))
+        }
+
+        Ok(value)
     }
 }
 
@@ -738,4 +768,54 @@ mod tests {
             _ => panic!("Got wrong value type"),
         }
     }
+
+    #[test]
+    fn test_read_string() {
+        let input = b"\x04\x08\"\x09Test";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::String(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::String(string) => {
+                        assert_eq!(string.get_string(), "Test");
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
+    #[test]
+    fn test_read_instance_variables() {
+        let input = b"\x04\x08I\"\x09Test\x06:\x06ET";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::String(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::String(string) => {
+                        assert_eq!(string.get_string(), "Test");
+                        assert_eq!(string.get_instance_variables().as_ref().unwrap().len(), 1);
+                        let symbol_id = string.get_instance_variables().as_ref().unwrap().keys().next().unwrap();
+                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "E");
+                        match string.get_instance_variable(*symbol_id).unwrap() {
+                            RubyValue::Boolean(boolean) => {
+                                assert!(*boolean);
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
 }
