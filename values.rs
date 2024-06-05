@@ -23,7 +23,7 @@ pub enum RubyValue {
     // Object(RubyObject),
     RegExp(ObjectID),
     String(ObjectID),
-    // Struct(),
+    Struct(ObjectID),
     // UserClass(),
     // UserDefined(),
     // UserMarshal(),
@@ -42,6 +42,7 @@ pub enum RubyObject {
     String(RubyString),
     BigNum(i64),
     RegExp(RegExp),
+    Struct(Struct),
 }
 
 #[derive(Debug)]
@@ -178,3 +179,28 @@ impl RegExp {
         self.options
     }
 }
+
+#[derive(PartialEq, Debug)]
+pub struct Struct {
+    name: SymbolID,
+    members: HashMap<SymbolID, RubyValue>,
+}
+
+impl Struct {
+    pub fn new(name: SymbolID, members: HashMap<SymbolID, RubyValue>) -> Self {
+       Self {name, members} 
+    }
+
+    pub fn get_name(&self) -> SymbolID {
+        self.name
+    }
+
+    pub fn get_members(&self) -> &HashMap<SymbolID, RubyValue> {
+        &self.members
+    }
+
+    pub fn get_member(&self, symbol_id: SymbolID) -> Option<&RubyValue> {
+        self.members.get(&symbol_id)
+    }
+}
+

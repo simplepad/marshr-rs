@@ -74,6 +74,7 @@ impl<T: Read> Loader<T> {
             b'I' => self.read_value_with_instance_variables()?,
             b'l' => RubyValue::BigNum(self.read_bignum()?),
             b'/' => RubyValue::RegExp(self.read_regexp()?),
+            b'S' => RubyValue::Struct(self.read_struct()?),
             _ => return Err(LoadError::ParserError(format!("Unknown value type: {}", buffer[0]))),
         };
 
@@ -210,6 +211,7 @@ impl<T: Read> Loader<T> {
                 RubyObject::String(_) => RubyValue::String(object_id),
                 RubyObject::BigNum(_) => RubyValue::BigNum(object_id),
                 RubyObject::RegExp(_) => RubyValue::RegExp(object_id),
+                RubyObject::Struct(_) => RubyValue::Struct(object_id),
             };
             Ok(ruby_value)
         } else {
@@ -368,6 +370,21 @@ impl<T: Read> Loader<T> {
 
         self.objects.push(RubyObject::RegExp(RegExp::new(pattern, options)));
         Ok(self.objects.len()-1)
+    }
+
+    fn read_struct(&mut self) -> Result<ObjectID, LoadError> {
+        self.objects.push(RubyObject::Empty);
+        let struct_id = self.objects.len()-1;
+
+        let name = match self.read_value()? {
+            RubyValue::Symbol(symbol_id) => symbol_id,
+            value => return Err(LoadError::ParserError(format!("Could not parse struct, expected a symbol or a symbol link, got {:?}", value)))
+        };
+
+        let struct_members = self.read_value_pairs()?;
+
+        self.objects[struct_id] = RubyObject::Struct(Struct::new(name, struct_members));
+        Ok(struct_id)
     }
 }
 
@@ -968,4 +985,31 @@ mod tests {
 
     }
 
+    #[test]
+    fn test_read_struct() {
+        let input = b"\x04\x08S:\x09Test\x06:\x06ai\x06";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::Struct(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::Struct(ruby_struct) => {
+                        assert_eq!(result.get_symbol(ruby_struct.get_name()).unwrap(), "Test");
+                        let symbol_id = ruby_struct.get_members().keys().next().unwrap();
+                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "a");
+                        match ruby_struct.get_member(*symbol_id).unwrap() {
+                            RubyValue::FixNum(fixnum) => {
+                                assert_eq!(*fixnum, 1);
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
 }
