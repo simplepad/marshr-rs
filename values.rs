@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::{btree_map::Keys, HashMap}, ops::{Index, IndexMut}, rc::Rc};
 
 pub type Rrc<T> = Rc<RefCell<T>>;
 
@@ -16,8 +16,9 @@ pub enum RubyValue {
     // Class(String),
     // Module(String),
     // Data(Vec<u8>), // TODO pick a better value
-    // Float(f64),
-    // Hash(HashMap<RubyObject, RubyObject>),
+    Float(ObjectID),
+    Hash(ObjectID),
+    HashWithDefault(ObjectID),
     // Object(RubyObject),
     // RegExp(String),
     // RubyString(String),
@@ -31,6 +32,9 @@ pub enum RubyValue {
 pub enum RubyObject {
     Empty, // for the 0th element (ruby object index starts with 1)
     Array(Vec<RubyValue>),
+    Hash(HashMap<SymbolID, RubyValue>),
+    HashWithDefault(HashWithDefault),
+    Float(f64),
 }
 
 #[derive(Debug)]
@@ -62,7 +66,39 @@ impl Root {
     }
 
     pub fn get_object(&self, id: ObjectID) -> Option<&RubyObject> {
-        if id == 0 { return None; } // object ids start with 1
         self.objects.get(id)
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct HashWithDefault {
+    hash: HashMap<SymbolID, RubyValue>,
+    default: RubyValue,
+}
+
+impl HashWithDefault {
+    pub fn new(hash: HashMap<SymbolID, RubyValue>, default: RubyValue) -> Self {
+        Self { hash, default }
+    }
+
+    pub fn len(&self) -> usize {
+        self.hash.len()
+    }
+
+    pub fn keys<'a>(&'a self) -> impl Iterator<Item = &'a SymbolID> {
+        self.hash.keys()
+    }
+}
+
+impl Index<usize> for HashWithDefault {
+    type Output = RubyValue;
+    fn index(&self, index: usize) -> &Self::Output {
+        self.hash.get(&index).unwrap_or(&self.default)
+    }
+}
+
+impl IndexMut<usize> for HashWithDefault {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.hash.get_mut(&index).unwrap_or(&mut self.default)
     }
 }
