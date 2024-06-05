@@ -72,6 +72,7 @@ impl<T: Read> Loader<T> {
             b'M' => RubyValue::ClassOrModule(self.read_class_or_module()?),
             b'"' => RubyValue::String(self.read_string()?),
             b'I' => self.read_value_with_instance_variables()?,
+            b'l' => RubyValue::BigNum(self.read_bignum()?),
             _ => return Err(LoadError::ParserError(format!("Unknown value type: {}", buffer[0]))),
         };
 
@@ -206,6 +207,7 @@ impl<T: Read> Loader<T> {
                 RubyObject::Module(_) => RubyValue::Module(object_id),
                 RubyObject::ClassOrModule(_) => RubyValue::ClassOrModule(object_id),
                 RubyObject::String(_) => RubyValue::String(object_id),
+                RubyObject::BigNum(_) => RubyValue::BigNum(object_id),
             };
             Ok(ruby_value)
         } else {
@@ -289,7 +291,6 @@ impl<T: Read> Loader<T> {
         let value = self.read_value()?;
 
         let instance_variables = self.read_value_pairs()?;
-
         match value {
             RubyValue::String(object_id) => {
                 match &mut self.objects[object_id] {
@@ -303,6 +304,46 @@ impl<T: Read> Loader<T> {
         }
 
         Ok(value)
+    }
+
+    fn read_bignum(&mut self) -> Result<ObjectID, LoadError> {
+        let mut buffer: [u8; 1] = [0; 1];
+        if let Err(err) = self.reader.read_exact(&mut buffer) {
+            return Err(LoadError::IoError(format!("Failed to read bignum's sign byte: {}", err)));
+        }
+
+        let is_positive = match buffer[0] {
+            b'+' => true,
+            b'-' => false,
+            _ => return Err(LoadError::ParserError(format!("Could not parse bignum's sign byte, got \"{}\"", buffer[0]))),
+        };
+
+        let length = match usize::try_from(self.read_fixnum()?) {
+            Ok(val) => val * 2,
+            Err(_) => return Err(LoadError::ParserError("Could not parse array length (could not convert array length to usize)".to_string())),
+        };
+
+        let mut buffer = vec![0; length];
+        if let Err(err) = self.reader.read_exact(&mut buffer) {
+            return Err(LoadError::IoError(format!("Failed to read bignum: {}, was expecting {} bytes", err, length)));
+        }
+
+        let mut value: i64 = 0;
+
+        for (i, byte) in buffer.iter().enumerate() {
+            let shift_bits = match u32::try_from(i * 8) {
+                Ok(val) => val,
+                Err(_) => return Err(LoadError::ParserError("Could not parse bignum, exponent was too big".to_string())),
+            };
+            value += (*byte as i64) << shift_bits;
+        }
+
+        if !is_positive {
+            value *= -1;
+        }
+
+        self.objects.push(RubyObject::BigNum(value));
+        Ok(self.objects.len()-1)
     }
 }
 
@@ -816,6 +857,44 @@ mod tests {
             }
             _ => panic!("Got wrong value type"),
         }
+    }
+
+    #[test]
+    fn test_read_bignum() {
+        let input = b"\x04\x08l+\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::BigNum(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::BigNum(bignum) => {
+                        assert_eq!(*bignum, 15241578750190521);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+
+        let input = b"\x04\x08l-\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::BigNum(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::BigNum(bignum) => {
+                        assert_eq!(*bignum, -15241578750190521);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+
     }
 
 }

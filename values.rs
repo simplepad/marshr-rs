@@ -12,7 +12,7 @@ pub enum RubyValue {
     FixNum(i32),
     Symbol(SymbolID),
     Array(ObjectID),
-    // BigNum(i64), // TODO pick a better value
+    BigNum(ObjectID),
     Class(ObjectID),
     Module(ObjectID),
     ClassOrModule(ObjectID),
@@ -40,6 +40,7 @@ pub enum RubyObject {
     Module(String),
     ClassOrModule(String),
     String(RubyString),
+    BigNum(i64)
 }
 
 #[derive(Debug)]
