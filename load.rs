@@ -67,6 +67,9 @@ impl<T: Read> Loader<T> {
             b'@' => self.read_object_link()?,
             b'{' => RubyValue::Hash(self.read_hash()?),
             b'}' => RubyValue::HashWithDefault(self.read_hash_with_default()?),
+            b'c' => RubyValue::Class(self.read_class()?),
+            b'm' => RubyValue::Module(self.read_module()?),
+            b'M' => RubyValue::ClassOrModule(self.read_class_or_module()?),
             _ => return Err(LoadError::ParserError(format!("Unknown value type: {}", buffer[0]))),
         };
 
@@ -197,7 +200,9 @@ impl<T: Read> Loader<T> {
                 RubyObject::Float(_) => RubyValue::Float(object_id),
                 RubyObject::Hash(_) => RubyValue::Hash(object_id),
                 RubyObject::HashWithDefault(_) => RubyValue::HashWithDefault(object_id),
-
+                RubyObject::Class(_) => RubyValue::Class(object_id),
+                RubyObject::Module(_) => RubyValue::Module(object_id),
+                RubyObject::ClassOrModule(_) => RubyValue::ClassOrModule(object_id),
             };
             Ok(ruby_value)
         } else {
@@ -247,6 +252,27 @@ impl<T: Read> Loader<T> {
 
         self.objects[hash_id] = RubyObject::HashWithDefault(HashWithDefault::new(hash, default));
         Ok(hash_id)
+    }
+
+    fn read_class(&mut self) -> Result<ObjectID, LoadError> {
+        let class = self.read_sequence()?;
+
+        self.objects.push(RubyObject::Class(class));
+        Ok(self.objects.len()-1)
+    }
+
+    fn read_module(&mut self) -> Result<ObjectID, LoadError> {
+        let module = self.read_sequence()?;
+
+        self.objects.push(RubyObject::Module(module));
+        Ok(self.objects.len()-1)
+    }
+
+    fn read_class_or_module(&mut self) -> Result<ObjectID, LoadError> {
+        let class_or_module = self.read_sequence()?;
+
+        self.objects.push(RubyObject::ClassOrModule(class_or_module));
+        Ok(self.objects.len()-1)
     }
 }
 
@@ -651,5 +677,65 @@ mod tests {
             _ => panic!("Got wrong value type"),
         }
 
+    }
+
+    #[test]
+    fn test_read_class() {
+        let input = b"\x04\x08c\x09Test";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::Class(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::Class(class) => {
+                        assert_eq!(class, "Test");
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
+    #[test]
+    fn test_read_module() {
+        let input = b"\x04\x08m\x09Test";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::Module(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::Module(module) => {
+                        assert_eq!(module, "Test");
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
+    #[test]
+    fn test_read_class_or_module() {
+        let input = b"\x04\x08M\x09Test";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::ClassOrModule(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::ClassOrModule(class_or_module) => {
+                        assert_eq!(class_or_module, "Test");
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
     }
 }

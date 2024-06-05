@@ -13,8 +13,9 @@ pub enum RubyValue {
     Symbol(SymbolID),
     Array(ObjectID),
     // BigNum(i64), // TODO pick a better value
-    // Class(String),
-    // Module(String),
+    Class(ObjectID),
+    Module(ObjectID),
+    ClassOrModule(ObjectID),
     // Data(Vec<u8>), // TODO pick a better value
     Float(ObjectID),
     Hash(ObjectID),
@@ -35,6 +36,9 @@ pub enum RubyObject {
     Hash(HashMap<SymbolID, RubyValue>),
     HashWithDefault(HashWithDefault),
     Float(f64),
+    Class(String),
+    Module(String),
+    ClassOrModule(String),
 }
 
 #[derive(Debug)]
