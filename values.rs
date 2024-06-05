@@ -16,7 +16,7 @@ pub enum RubyValue {
     Class(ObjectID),
     Module(ObjectID),
     ClassOrModule(ObjectID),
-    // Data(Vec<u8>), // TODO pick a better value
+    // Data(ObjectID),
     Float(ObjectID),
     Hash(ObjectID),
     HashWithDefault(ObjectID),
@@ -24,9 +24,9 @@ pub enum RubyValue {
     RegExp(ObjectID),
     String(ObjectID),
     Struct(ObjectID),
-    // UserClass(),
-    // UserDefined(),
-    // UserMarshal(),
+    UserClass(ObjectID),
+    UserDefined(ObjectID),
+    UserMarshal(ObjectID),
 }
 
 #[derive(PartialEq, Debug)]
@@ -44,6 +44,9 @@ pub enum RubyObject {
     RegExp(RegExp),
     Struct(Struct),
     Object(Object),
+    UserClass(UserClass),
+    UserDefined(UserDefined),
+    UserMarshal(UserMarshal),
 }
 
 #[derive(Debug)]
@@ -229,3 +232,98 @@ impl Object {
     }
 }
 
+#[derive(PartialEq, Debug)]
+pub struct UserClass {
+    name: SymbolID,
+    wrapped_object: RubyValue,
+    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+}
+
+impl UserClass {
+    pub fn new(name: SymbolID, wrapped_object: RubyValue) -> Self {
+       Self {name, wrapped_object, instance_variables: None } 
+    }
+
+    pub fn get_name(&self) -> SymbolID {
+        self.name
+    }
+
+    pub fn get_wrapped_object(&self) -> &RubyValue {
+        &self.wrapped_object
+    }
+
+    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+        self.instance_variables = Some(instance_variables);
+    }
+
+
+    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+        &self.instance_variables
+    }
+
+    pub fn get_instance_variable(&self, symbol_id: SymbolID) -> Option<&RubyValue> {
+        if let Some(instance_variables) = &self.instance_variables {
+            instance_variables.get(&symbol_id)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct UserDefined {
+    class_name: SymbolID,
+    data: Vec<u8>,
+    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+}
+
+impl UserDefined {
+    pub fn new(class_name: SymbolID, data: Vec<u8>) -> Self {
+       Self {class_name, data, instance_variables: None} 
+    }
+
+    pub fn get_class_name(&self) -> SymbolID {
+        self.class_name
+    }
+
+    pub fn get_data(&self) -> &Vec<u8> {
+        &self.data
+    }
+
+    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+        self.instance_variables = Some(instance_variables);
+    }
+
+
+    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+        &self.instance_variables
+    }
+
+    pub fn get_instance_variable(&self, symbol_id: SymbolID) -> Option<&RubyValue> {
+        if let Some(instance_variables) = &self.instance_variables {
+            instance_variables.get(&symbol_id)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct UserMarshal {
+    class_name: SymbolID,
+    wrapped_object: RubyValue,
+}
+
+impl UserMarshal {
+    pub fn new(class_name: SymbolID, wrapped_object: RubyValue) -> Self {
+       Self {class_name, wrapped_object } 
+    }
+
+    pub fn get_class_name(&self) -> SymbolID {
+        self.class_name
+    }
+
+    pub fn get_wrapped_object(&self) -> &RubyValue {
+        &self.wrapped_object
+    }
+}

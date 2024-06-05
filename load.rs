@@ -76,6 +76,10 @@ impl<T: Read> Loader<T> {
             b'/' => RubyValue::RegExp(self.read_regexp()?),
             b'S' => RubyValue::Struct(self.read_struct()?),
             b'o' => RubyValue::Object(self.read_object()?),
+            b'C' => RubyValue::UserClass(self.read_user_class()?),
+            b'u' => RubyValue::UserDefined(self.read_user_defined()?),
+            b'U' => RubyValue::UserMarshal(self.read_user_marshal()?),
+            b'd' => return Err(LoadError::ParserError("This parser doesn't support Data objects".to_string())),
             _ => return Err(LoadError::ParserError(format!("Unknown value type: {}", buffer[0]))),
         };
 
@@ -128,13 +132,17 @@ impl<T: Read> Loader<T> {
         }
     }
 
-    fn read_sequence(&mut self) -> Result<String, LoadError> {
+    fn read_byte_sequence(&mut self) -> Result<Vec<u8>, LoadError> {
         let sequence_len = self.read_fixnum()?.try_into().unwrap();
         let mut buffer = vec![0; sequence_len];
         if let Err(err) = self.reader.read_exact(&mut buffer) {
-            return Err(LoadError::IoError(format!("Failed to read sequence: {}, was expecting {} bytes", err, sequence_len)));
+            return Err(LoadError::IoError(format!("Failed to read byte sequence: {}, was expecting {} bytes", err, sequence_len)));
         }
-        let sequence = String::from_utf8(buffer)?;
+        Ok(buffer)
+    }
+
+    fn read_sequence(&mut self) -> Result<String, LoadError> {
+        let sequence = String::from_utf8(self.read_byte_sequence()?)?;
         Ok(sequence)
     }
 
@@ -214,6 +222,9 @@ impl<T: Read> Loader<T> {
                 RubyObject::RegExp(_) => RubyValue::RegExp(object_id),
                 RubyObject::Struct(_) => RubyValue::Struct(object_id),
                 RubyObject::Object(_) => RubyValue::Object(object_id),
+                RubyObject::UserClass(_) => RubyValue::UserClass(object_id),
+                RubyObject::UserDefined(_) => RubyValue::UserDefined(object_id),
+                RubyObject::UserMarshal(_) => RubyValue::UserMarshal(object_id),
             };
             Ok(ruby_value)
         } else {
@@ -314,6 +325,22 @@ impl<T: Read> Loader<T> {
                     _ => panic!("Got wrong object type"),
                 }
             }
+            RubyValue::UserClass(object_id) => {
+                match &mut self.objects[object_id] {
+                    RubyObject::UserClass(user_class) => {
+                        user_class.set_instance_variables(instance_variables);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            RubyValue::UserDefined(object_id) => {
+                match &mut self.objects[object_id] {
+                    RubyObject::UserDefined(user_defined) => {
+                        user_defined.set_instance_variables(instance_variables);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
             object => return Err(LoadError::ParserError(format!("Object {:?} doesn't support instance variables", object)))
         }
 
@@ -402,6 +429,51 @@ impl<T: Read> Loader<T> {
 
         self.objects[object_id] = RubyObject::Object(Object::new(class_name, instance_variables));
         Ok(object_id)
+    }
+
+    fn read_user_class(&mut self) -> Result<ObjectID, LoadError> {
+        self.objects.push(RubyObject::Empty);
+        let user_class_id = self.objects.len()-1;
+
+        let name = match self.read_value()? {
+            RubyValue::Symbol(symbol_id) => symbol_id,
+            value => return Err(LoadError::ParserError(format!("Could not parse user class, expected a symbol or a symbol link, got {:?}", value)))
+        };
+
+        let wrapped_object = self.read_value()?;
+
+        self.objects[user_class_id] = RubyObject::UserClass(UserClass::new(name, wrapped_object));
+        Ok(user_class_id)
+    }
+
+    fn read_user_defined(&mut self) -> Result<ObjectID, LoadError> {
+        self.objects.push(RubyObject::Empty);
+        let user_defined_id = self.objects.len()-1;
+
+        let class_name = match self.read_value()? {
+            RubyValue::Symbol(symbol_id) => symbol_id,
+            value => return Err(LoadError::ParserError(format!("Could not parse user defined, expected a symbol or a symbol link, got {:?}", value)))
+        };
+
+        let data = self.read_byte_sequence()?;
+
+        self.objects[user_defined_id] = RubyObject::UserDefined(UserDefined::new(class_name, data));
+        Ok(user_defined_id)
+    }
+
+    fn read_user_marshal(&mut self) -> Result<ObjectID, LoadError> {
+        self.objects.push(RubyObject::Empty);
+        let user_marshal_id = self.objects.len()-1;
+
+        let class_name = match self.read_value()? {
+            RubyValue::Symbol(symbol_id) => symbol_id,
+            value => return Err(LoadError::ParserError(format!("Could not parse user marshal, expected a symbol or a symbol link, got {:?}", value)))
+        };
+
+        let wrapped_object = self.read_value()?;
+
+        self.objects[user_marshal_id] = RubyObject::UserMarshal(UserMarshal::new(class_name, wrapped_object));
+        Ok(user_marshal_id)
     }
 }
 
@@ -1049,6 +1121,98 @@ mod tests {
                                 assert_eq!(*fixnum, 1);
                             }
                             _ => panic!("Got wrong value type"),
+                        }
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
+    #[test]
+    fn test_read_user_class() {
+        let input = b"\x04\x08IC:\x09Test\"\x06a\x06:\x06ET";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::UserClass(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::UserClass(user_class) => {
+                        assert_eq!(result.get_symbol(user_class.get_name()).unwrap(), "Test");
+                        if let RubyValue::String(string) = user_class.get_wrapped_object() {
+                            match result.get_object(*string).unwrap() {
+                                RubyObject::String(string) => {
+                                    assert_eq!(string.get_string(), "a");
+                                }
+                                _ => panic!("Got wrong object type"),
+                            }
+                        } else {
+                            panic!("Got wrong value type");
+                        }
+                        let symbol_id = user_class.get_instance_variables().as_ref().unwrap().keys().next().unwrap();
+                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "E");
+                        match user_class.get_instance_variable(*symbol_id).unwrap() {
+                            RubyValue::Boolean(boolean) => {
+                                assert!(*boolean);
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
+    #[test]
+    fn test_read_user_defined() {
+        let input = b"\x04\x08Iu:\x09Test\x061\x06:\x06EF";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::UserDefined(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::UserDefined(user_defined) => {
+                        assert_eq!(result.get_symbol(user_defined.get_class_name()).unwrap(), "Test");
+                        assert_eq!(user_defined.get_data(), &vec![b'1']);
+                        let symbol_id = user_defined.get_instance_variables().as_ref().unwrap().keys().next().unwrap();
+                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "E");
+                        match user_defined.get_instance_variable(*symbol_id).unwrap() {
+                            RubyValue::Boolean(boolean) => {
+                                assert!(!*boolean);
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+    }
+
+    #[test]
+    fn test_read_user_marshal() {
+        let input = b"\x04\x08U:\x09Testi\x06";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::UserMarshal(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::UserMarshal(user_marshal) => {
+                        assert_eq!(result.get_symbol(user_marshal.get_class_name()).unwrap(), "Test");
+                        if let RubyValue::FixNum(fixnum) = user_marshal.get_wrapped_object() {
+                            assert_eq!(*fixnum, 1);
+                        } else {
+                            panic!("Got wrong value type");
                         }
                     }
                     _ => panic!("Got wrong object type"),
