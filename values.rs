@@ -20,7 +20,7 @@ pub enum RubyValue {
     Float(ObjectID),
     Hash(ObjectID),
     HashWithDefault(ObjectID),
-    // Object(RubyObject),
+    Object(ObjectID),
     RegExp(ObjectID),
     String(ObjectID),
     Struct(ObjectID),
@@ -43,6 +43,7 @@ pub enum RubyObject {
     BigNum(i64),
     RegExp(RegExp),
     Struct(Struct),
+    Object(Object),
 }
 
 #[derive(Debug)]
@@ -201,6 +202,30 @@ impl Struct {
 
     pub fn get_member(&self, symbol_id: SymbolID) -> Option<&RubyValue> {
         self.members.get(&symbol_id)
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct Object {
+    class_name: SymbolID,
+    instance_variables: HashMap<SymbolID, RubyValue>,
+}
+
+impl Object {
+    pub fn new(class_name: SymbolID, instance_variables: HashMap<SymbolID, RubyValue>) -> Self {
+       Self {class_name, instance_variables} 
+    }
+
+    pub fn get_class_name(&self) -> SymbolID {
+        self.class_name
+    }
+
+    pub fn get_instance_variables(&self) -> &HashMap<SymbolID, RubyValue> {
+        &self.instance_variables
+    }
+
+    pub fn get_instance_variable(&self, symbol_id: SymbolID) -> Option<&RubyValue> {
+        self.instance_variables.get(&symbol_id)
     }
 }
 
