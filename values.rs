@@ -5,7 +5,7 @@ pub type Rrc<T> = Rc<RefCell<T>>;
 pub type ObjectID = usize;
 pub type SymbolID = usize;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub enum RubyValue {
     Nil,
     Boolean(bool),
@@ -27,13 +27,14 @@ pub enum RubyValue {
     UserClass(ObjectID),
     UserDefined(ObjectID),
     UserMarshal(ObjectID),
+    Uninitialized(ObjectID), // for recursion
 }
 
 #[derive(PartialEq, Debug)]
 pub enum RubyObject {
     Empty, // for the 0th element (ruby object index starts with 1)
     Array(Vec<RubyValue>),
-    Hash(HashMap<SymbolID, RubyValue>),
+    Hash(HashMap<RubyValue, RubyValue>),
     HashWithDefault(HashWithDefault),
     Float(f64),
     Class(String),
@@ -84,12 +85,12 @@ impl Root {
 
 #[derive(PartialEq, Debug)]
 pub struct HashWithDefault {
-    hash: HashMap<SymbolID, RubyValue>,
+    hash: HashMap<RubyValue, RubyValue>,
     default: RubyValue,
 }
 
 impl HashWithDefault {
-    pub fn new(hash: HashMap<SymbolID, RubyValue>, default: RubyValue) -> Self {
+    pub fn new(hash: HashMap<RubyValue, RubyValue>, default: RubyValue) -> Self {
         Self { hash, default }
     }
 
@@ -97,21 +98,21 @@ impl HashWithDefault {
         self.hash.len()
     }
 
-    pub fn keys<'a>(&'a self) -> impl Iterator<Item = &'a SymbolID> {
+    pub fn keys(&self) -> impl Iterator<Item = &RubyValue> {
         self.hash.keys()
     }
 }
 
-impl Index<usize> for HashWithDefault {
+impl<'a> Index<&'a RubyValue> for HashWithDefault {
     type Output = RubyValue;
-    fn index(&self, index: usize) -> &Self::Output {
-        self.hash.get(&index).unwrap_or(&self.default)
+    fn index(&self, index: &'a RubyValue) -> &Self::Output {
+        self.hash.get(index).unwrap_or(&self.default)
     }
 }
 
-impl IndexMut<usize> for HashWithDefault {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.hash.get_mut(&index).unwrap_or(&mut self.default)
+impl<'a> IndexMut<&'a RubyValue> for HashWithDefault {
+    fn index_mut(&mut self, index: &'a RubyValue) -> &mut Self::Output {
+        self.hash.get_mut(index).unwrap_or(&mut self.default)
     }
 }
 

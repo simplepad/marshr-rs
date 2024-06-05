@@ -209,7 +209,7 @@ impl<T: Read> Loader<T> {
 
         if let Some(object) = self.objects.get(object_id) {
             let ruby_value = match object {
-                RubyObject::Empty => return Err(LoadError::ParserError("Could not parse object link (links to a non-existent object)".to_string())),
+                RubyObject::Empty => RubyValue::Uninitialized(object_id), // recursion
                 RubyObject::Array(_) => RubyValue::Array(object_id),
                 RubyObject::Float(_) => RubyValue::Float(object_id),
                 RubyObject::Hash(_) => RubyValue::Hash(object_id),
@@ -232,7 +232,7 @@ impl<T: Read> Loader<T> {
         }
     }
 
-    fn read_value_pairs(&mut self) -> Result<HashMap<SymbolID, RubyValue>, LoadError> {
+    fn read_value_pairs(&mut self) -> Result<HashMap<RubyValue, RubyValue>, LoadError> {
         let num_of_pairs = match usize::try_from(self.read_fixnum()?) {
             Ok(val) => val,
             Err(_) => return Err(LoadError::ParserError("Could not parse number of key:value pairs (could not convert number of pairs to usize)".to_string())),
@@ -241,10 +241,27 @@ impl<T: Read> Loader<T> {
         let mut pairs = HashMap::with_capacity(num_of_pairs);
 
         for _ in 0..num_of_pairs {
-            let symbol = if let RubyValue::Symbol(symbol_id) = self.read_value()? {
-                symbol_id
-            } else {
-                return Err(LoadError::ParserError("Could not parse key:value pairs, key was not a Symbol".to_string()))
+            let key = self.read_value()?;
+            let value = self.read_value()?;
+
+            pairs.insert(key, value);
+        }
+
+        Ok(pairs)
+    }
+
+    fn read_value_pairs_symbol_keys(&mut self) -> Result<HashMap<SymbolID, RubyValue>, LoadError> {
+        let num_of_pairs = match usize::try_from(self.read_fixnum()?) {
+            Ok(val) => val,
+            Err(_) => return Err(LoadError::ParserError("Could not parse number of key:value pairs (could not convert number of pairs to usize)".to_string())),
+        };
+
+        let mut pairs = HashMap::with_capacity(num_of_pairs);
+
+        for _ in 0..num_of_pairs {
+            let symbol = match self.read_value()? {
+                RubyValue::Symbol(symbol_id) => symbol_id,
+                other => return Err(LoadError::ParserError(format!("Could not parse key:value pairs, key was not a Symbol: {:?}", other)))
             };
             let value = self.read_value()?;
 
@@ -307,7 +324,7 @@ impl<T: Read> Loader<T> {
     fn read_value_with_instance_variables(&mut self) -> Result<RubyValue, LoadError> {
         let value = self.read_value()?;
 
-        let instance_variables = self.read_value_pairs()?;
+        let instance_variables = self.read_value_pairs_symbol_keys()?;
         match value {
             RubyValue::String(object_id) => {
                 match &mut self.objects[object_id] {
@@ -410,7 +427,7 @@ impl<T: Read> Loader<T> {
             value => return Err(LoadError::ParserError(format!("Could not parse struct, expected a symbol or a symbol link, got {:?}", value)))
         };
 
-        let struct_members = self.read_value_pairs()?;
+        let struct_members = self.read_value_pairs_symbol_keys()?;
 
         self.objects[struct_id] = RubyObject::Struct(Struct::new(name, struct_members));
         Ok(struct_id)
@@ -425,7 +442,7 @@ impl<T: Read> Loader<T> {
             value => return Err(LoadError::ParserError(format!("Could not parse object, expected a symbol or a symbol link, got {:?}", value)))
         };
 
-        let instance_variables = self.read_value_pairs()?;
+        let instance_variables = self.read_value_pairs_symbol_keys()?;
 
         self.objects[object_id] = RubyObject::Object(Object::new(class_name, instance_variables));
         Ok(object_id)
@@ -480,7 +497,7 @@ impl<T: Read> Loader<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::BufReader;
+    use std::{fs::File, io::BufReader};
 
     use super::*;
 
@@ -826,15 +843,20 @@ mod tests {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::Hash(hash) => {
                         assert_eq!(hash.len(), 1);
-                        let symbol_id = hash.keys().next().unwrap();
-                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "a");
-                        match hash[symbol_id] {
+                        let key = hash.keys().next().unwrap();
+                        match key {
+                            RubyValue::Symbol(symbol_id) => {
+                                assert_eq!(result.get_symbol(*symbol_id).unwrap(), "a");
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
+                        match hash[key] {
                             RubyValue::FixNum(val) => {
                                 assert_eq!(val, 1)
                             }
                             _ => panic!("Got wrong value type"),
                         }
-                        assert!(hash.get(&(symbol_id+1)).is_none())
+                        assert!(hash.get(&RubyValue::FixNum(5)).is_none())
                     }
                     _ => panic!("Got wrong object type"),
                 }
@@ -856,16 +878,21 @@ mod tests {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::HashWithDefault(hash) => {
                         assert_eq!(hash.len(), 1);
-                        let symbol_id = hash.keys().next().unwrap();
-                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "a");
-                        match hash[*symbol_id] {
+                        let key = hash.keys().next().unwrap();
+                        match key {
+                            RubyValue::Symbol(symbol_id) => {
+                                assert_eq!(result.get_symbol(*symbol_id).unwrap(), "a");
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
+                        match hash[key] {
                             RubyValue::FixNum(val) => {
                                 assert_eq!(val, 1)
                             }
                             _ => panic!("Got wrong value type"),
                         }
                         // test default value
-                        match hash[symbol_id+1] {
+                        match hash[&RubyValue::FixNum(5)] {
                             RubyValue::FixNum(val) => {
                                 assert_eq!(val, 2)
                             }
