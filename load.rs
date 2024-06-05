@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, io::Read, string::ParseError};
+use std::{collections::HashMap, fmt::Display, io::Read};
 use crate::ruby_marshal::values::*;
 
 #[derive(Debug)]
@@ -9,7 +9,7 @@ pub enum LoadError {
 
 impl From<std::string::FromUtf8Error> for LoadError {
     fn from(_value: std::string::FromUtf8Error) -> Self {
-        Self::ParserError("Could not decode bytes into a String".to_string())
+        Self::ParserError(format!("Could not decode bytes into a String: {}", _value))
     }
 }
 
@@ -155,7 +155,8 @@ impl<T: Read> Loader<T> {
     }
 
     fn read_sequence(&mut self) -> Result<String, LoadError> {
-        let sequence = String::from_utf8(self.read_byte_sequence()?)?;
+        let byte_sequence = self.read_byte_sequence()?;
+        let sequence = String::from_utf8(byte_sequence)?;
         Ok(sequence)
     }
 
@@ -169,7 +170,7 @@ impl<T: Read> Loader<T> {
     fn read_symbol_link(&mut self) -> Result<SymbolID, LoadError> {
         let symbol_id = match usize::try_from(self.read_fixnum()?) {
             Ok(val) => val,
-            Err(error) => return Err(LoadError::ParserError("Could not parse symbol link (could not convert symbol index to usize)".to_string())),
+            Err(_) => return Err(LoadError::ParserError("Could not parse symbol link (could not convert symbol index to usize)".to_string())),
         };
 
         if symbol_id >= self.symbols.len() {
@@ -199,14 +200,17 @@ impl<T: Read> Loader<T> {
     }
 
     fn read_float(&mut self) -> Result<ObjectID, LoadError> {
-        let float_sequence = self.read_sequence()?;
+        let mut float_sequence = self.read_byte_sequence()?;
 
-        let float_val = match float_sequence.as_str() {
-            "inf" => f64::INFINITY,
-            "-inf" => f64::NEG_INFINITY,
-            "nan" => f64::NAN,
-            float_val => {
-                float_val.parse()?
+        let float_val = match float_sequence.as_slice() {
+            b"inf" => f64::INFINITY,
+            b"-inf" => f64::NEG_INFINITY,
+            b"nan" => f64::NAN,
+            _ => {
+                // replicating ruby's parsing
+                float_sequence.push(0); // make sure its null-terminated
+                let value: f64 = unsafe { libc::strtod(float_sequence.as_ptr() as *const i8, std::ptr::null_mut()) };
+                value
             } 
         };
 
@@ -328,7 +332,7 @@ impl<T: Read> Loader<T> {
     }
 
     fn read_string(&mut self) -> Result<ObjectID, LoadError> {
-        let string = self.read_sequence()?;
+        let string = self.read_byte_sequence()?;
 
         self.objects.push(RubyObject::String(RubyString::new(string)));
         Ok(self.objects.len()-1)
@@ -510,7 +514,7 @@ impl<T: Read> Loader<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::BufReader};
+    use std::io::BufReader;
 
     use super::*;
 
@@ -671,10 +675,10 @@ mod tests {
                 match array {
                     RubyObject::Array(array) => {
                         assert_eq!(array.len(), 2);
-                        for i in 0..2 {
-                            match array[i] {
+                        for val in array {
+                            match val {
                                 RubyValue::Symbol(symbol_id) => {
-                                    assert_eq!(result.get_symbol(symbol_id).unwrap(), "hello")
+                                    assert_eq!(result.get_symbol(*symbol_id).unwrap(), "hello")
                                 }
                                 _ => panic!("Got wrong value type"),
                             }
@@ -720,10 +724,10 @@ mod tests {
                 match array {
                     RubyObject::Array(array) => {
                         assert_eq!(array.len(), 2);
-                        for i in 0..2 {
-                            match array[i] {
+                        for val in array {
+                            match val {
                                 RubyValue::FixNum(fixnum) => {
-                                    assert_eq!(fixnum, 122)
+                                    assert_eq!(*fixnum, 122)
                                 }
                                 _ => panic!("Got wrong value type"),
                             }
@@ -820,10 +824,10 @@ mod tests {
                 match array {
                     RubyObject::Array(array) => {
                         assert_eq!(array.len(), 2);
-                        for i in 0..2 {
-                            match array[i] {
+                        for val in array {
+                            match val {
                                 RubyValue::Float(object_id) => {
-                                    match result.get_object(object_id).unwrap() {
+                                    match result.get_object(*object_id).unwrap() {
                                         RubyObject::Float(float_val) => {
                                             assert_eq!(*float_val, 2.55);
                                         }
@@ -991,7 +995,7 @@ mod tests {
             RubyValue::String(object_id) => {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::String(string) => {
-                        assert_eq!(string.get_string(), "Test");
+                        assert_eq!(result.decode_string(string).unwrap(), "Test");
                     }
                     _ => panic!("Got wrong object type"),
                 }
@@ -1011,7 +1015,7 @@ mod tests {
             RubyValue::String(object_id) => {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::String(string) => {
-                        assert_eq!(string.get_string(), "Test");
+                        assert_eq!(result.decode_string(string).unwrap(), "Test");
                         assert_eq!(string.get_instance_variables().as_ref().unwrap().len(), 1);
                         let symbol_id = string.get_instance_variables().as_ref().unwrap().keys().next().unwrap();
                         assert_eq!(result.get_symbol(*symbol_id).unwrap(), "E");
@@ -1185,7 +1189,7 @@ mod tests {
                         if let RubyValue::String(string) = user_class.get_wrapped_object() {
                             match result.get_object(*string).unwrap() {
                                 RubyObject::String(string) => {
-                                    assert_eq!(string.get_string(), "a");
+                                    assert_eq!(result.decode_string(string).unwrap(), "a");
                                 }
                                 _ => panic!("Got wrong object type"),
                             }
