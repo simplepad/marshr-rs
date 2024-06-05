@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::{btree_map::Keys, HashMap}, ops::{Index, IndexMut}, rc::Rc};
+use std::{cell::RefCell, collections::{btree_map::Keys, HashMap}, fmt::{Display, Write}, ops::{Index, IndexMut}, rc::Rc};
 
 pub type Rrc<T> = Rc<RefCell<T>>;
 
@@ -50,6 +50,124 @@ pub enum RubyObject {
     UserMarshal(UserMarshal),
 }
 
+impl RubyObject {
+    fn as_array(&self) -> &Vec<RubyValue> {
+        match self {
+            RubyObject::Array(object) => object,
+            _ => panic!("Not an array"),
+        }
+    }
+
+    fn as_hash(&self) -> &HashMap<RubyValue, RubyValue> {
+        match self {
+            RubyObject::Hash(object) => object,
+            _ => panic!("Not a hash"),
+        }
+    }
+
+    fn as_hash_with_default(&self) -> &HashWithDefault {
+        match self {
+            RubyObject::HashWithDefault(object) => object,
+            _ => panic!("Not a hash with default"),
+        }
+    }
+
+    fn as_float(&self) -> f64 {
+        match self {
+            RubyObject::Float(object) => *object,
+            _ => panic!("Not a float"),
+        }
+    }
+
+    fn as_class(&self) -> &String {
+        match self {
+            RubyObject::Class(object) => object,
+            _ => panic!("Not a class"),
+        }
+    }
+
+    fn as_module(&self) -> &String {
+        match self {
+            RubyObject::Module(object) => object,
+            _ => panic!("Not a module"),
+        }
+    }
+
+    fn as_class_or_module(&self) -> &String {
+        match self {
+            RubyObject::ClassOrModule(object) => object,
+            _ => panic!("Not a class or module"),
+        }
+    }
+
+    fn as_string(&self) -> &RubyString {
+        match self {
+            RubyObject::String(object) => object,
+            _ => panic!("Not a string"),
+        }
+    }
+
+    fn as_bignum(&self) -> i64 {
+        match self {
+            RubyObject::BigNum(object) => *object,
+            _ => panic!("Not a bignum"),
+        }
+    }
+
+    fn as_regexp(&self) -> &RegExp {
+        match self {
+            RubyObject::RegExp(object) => object,
+            _ => panic!("Not a regexp"),
+        }
+    }
+
+    fn as_struct(&self) -> &Struct {
+        match self {
+            RubyObject::Struct(object) => object,
+            _ => panic!("Not a struct"),
+        }
+    }
+
+    fn as_object(&self) -> &Object {
+        match self {
+            RubyObject::Object(object) => object,
+            _ => panic!("Not an object"),
+        }
+    }
+
+    fn as_user_class(&self) -> &UserClass {
+        match self {
+            RubyObject::UserClass(object) => object,
+            _ => panic!("Not a user class"),
+        }
+    }
+
+    fn as_user_defined(&self) -> &UserDefined {
+        match self {
+            RubyObject::UserDefined(object) => object,
+            _ => panic!("Not a user defined"),
+        }
+    }
+
+    fn as_user_marshal(&self) -> &UserMarshal {
+        match self {
+            RubyObject::UserMarshal(object) => object,
+            _ => panic!("Not a user marshal"),
+        }
+    }
+}
+
+impl Display for RubyValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RubyValue::Nil => f.write_str("nil"),
+            RubyValue::Boolean(boolean) => f.write_str(&format!("{}", boolean)),
+            RubyValue::FixNum(num) => f.write_str(&format!("{}", num)),
+            _ => panic!("Display not implemented for this RubyValue type, use Display on corresponding RubyObject"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Root {
     symbols: Vec<String>,
@@ -80,6 +198,177 @@ impl Root {
 
     pub fn get_object(&self, id: ObjectID) -> Option<&RubyObject> {
         self.objects.get(id)
+    }
+
+    pub fn print(&self, value: &RubyValue, f: &mut impl Write) -> Result<(), std::fmt::Error> {
+        match value {
+            RubyValue::Nil | RubyValue::FixNum(_) | RubyValue::Boolean(_) => f.write_str(&format!("{}", value)),
+            RubyValue::Symbol(symbol_id) => f.write_str(&self.symbols[*symbol_id]),
+            RubyValue::Array(object_id) => {
+                let array = self.objects[*object_id].as_array();
+                if !array.is_empty() {
+                    f.write_str("Array [ ")?;
+                    for (i, obj) in array.iter().enumerate() {
+                        self.print(obj, f)?;
+                        if i != array.len() - 1 {
+                            f.write_str(", ")?;
+                        }
+                    }
+                    f.write_str(" ]")?;
+                } else {
+                    f.write_str("Array []")?;
+                }
+                Ok(())
+            },
+            RubyValue::BigNum(object_id) => f.write_str(&self.objects[*object_id].as_bignum().to_string()),
+            RubyValue::Class(object_id) => f.write_str(&format!("Class {}", self.objects[*object_id].as_class())),
+            RubyValue::Module(object_id) => f.write_str(&format!("Module {}", self.objects[*object_id].as_module())),
+            RubyValue::ClassOrModule(object_id) => f.write_str(&format!("ClassOrModule {}", self.objects[*object_id].as_class_or_module())),
+            RubyValue::Float(object_id) => f.write_str(&self.objects[*object_id].as_float().to_string()),
+            RubyValue::Hash(object_id) => {
+                let hash = self.objects[*object_id].as_hash();
+                f.write_str("Hash { ")?;
+                for (i, (key, value)) in hash.iter().enumerate() {
+                    self.print(key, f)?;
+                    f.write_str(": ")?;
+                    self.print(value, f)?;
+                    if i != hash.len() - 1 {
+                        f.write_str(", ")?;
+                    }
+                }
+                f.write_str(" }")?;
+                Ok(())
+            },
+            RubyValue::HashWithDefault(object_id) => {
+                let hash = self.objects[*object_id].as_hash_with_default();
+                f.write_str("HashWithDefault { ")?;
+                for (i, (key, value)) in hash.hash.iter().enumerate() {
+                    self.print(key, f)?;
+                    f.write_str(": ")?;
+                    self.print(value, f)?;
+                    f.write_str(", ")?;
+                }
+                f.write_str("default: ")?;
+                self.print(&hash.default, f)?;
+                f.write_str(" }")?;
+                Ok(())
+            },
+            RubyValue::Object(object_id) => {
+                let object = self.objects[*object_id].as_object();
+                f.write_str("Object { ")?;
+                f.write_str("class_name: ")?;
+                self.print(&RubyValue::Symbol(object.class_name), f)?;
+                f.write_str(", instance_variables: [ ")?;
+                for (i, (key, value)) in object.instance_variables.iter().enumerate() {
+                    self.print(&RubyValue::Symbol(*key), f)?;
+                    f.write_str(": ")?;
+                    self.print(value, f)?;
+                    f.write_str(", ")?;
+                }
+                f.write_str(" ] }")?;
+                Ok(())
+            },
+            RubyValue::RegExp(object_id) => {
+                let regexp = self.objects[*object_id].as_regexp();
+                f.write_str("RegExp { ")?;
+                f.write_str("pattern: ")?;
+                f.write_str(&regexp.pattern)?;
+                f.write_str(", options: ")?;
+                f.write_str(&regexp.options.to_string())?;
+                if let Some(instance_variables) = &regexp.instance_variables {
+                    f.write_str(", instance_variables: [ ")?;
+                    for (i, (key, value)) in instance_variables.iter().enumerate() {
+                        self.print(&RubyValue::Symbol(*key), f)?;
+                        f.write_str(": ")?;
+                        self.print(value, f)?;
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(" ] }")?;
+                } else {
+                    f.write_str(" }")?;
+                }
+                Ok(())
+            },
+            RubyValue::String(object_id) => {
+                let string = self.objects[*object_id].as_string();
+                f.write_str(&format!("\"{}\"", string.string))?;
+                Ok(())
+            },
+            RubyValue::Struct(object_id) => {
+                let ruby_struct = self.objects[*object_id].as_struct();
+                f.write_str("Stuct { ")?;
+                f.write_str(&format!("name: {}", ruby_struct.name))?;
+                f.write_str(", members: [ ")?;
+                for (i, (key, value)) in ruby_struct.members.iter().enumerate() {
+                    self.print(&RubyValue::Symbol(*key), f)?;
+                    f.write_str(": ")?;
+                    self.print(value, f)?;
+                    f.write_str(", ")?;
+                }
+                f.write_str(" ] }")?;
+                Ok(())
+            },
+            RubyValue::UserClass(object_id) => {
+                let user_class = self.objects[*object_id].as_user_class();
+                f.write_str("UserClass { ")?;
+                f.write_str("name: ")?;
+                self.print(&RubyValue::Symbol(user_class.name), f)?;
+                f.write_str(", wrapped_object: ")?;
+                self.print(&user_class.wrapped_object, f)?;
+                if let Some(instance_variables) = &user_class.instance_variables {
+                    f.write_str(", instance_variables: [ ")?;
+                    for (i, (key, value)) in instance_variables.iter().enumerate() {
+                        self.print(&RubyValue::Symbol(*key), f)?;
+                        f.write_str(": ")?;
+                        self.print(value, f)?;
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(" ] }")?;
+                } else {
+                    f.write_str(" }")?;
+                }
+                Ok(())
+            },
+            RubyValue::UserDefined(object_id) => {
+                let user_defined = self.objects[*object_id].as_user_defined();
+                f.write_str("UserDefined { ")?;
+                f.write_str("class_name: ")?;
+                self.print(&RubyValue::Symbol(user_defined.class_name), f)?;
+                f.write_str(&format!(", data: {:?}", user_defined.data))?;
+                if let Some(instance_variables) = &user_defined.instance_variables {
+                    f.write_str(", instance_variables: [ ")?;
+                    for (i, (key, value)) in instance_variables.iter().enumerate() {
+                        self.print(&RubyValue::Symbol(*key), f)?;
+                        f.write_str(": ")?;
+                        self.print(value, f)?;
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(" ] }")?;
+                } else {
+                    f.write_str(" }")?;
+                }
+                Ok(())
+            },
+            RubyValue::UserMarshal(object_id) => {
+                let user_marshal = self.objects[*object_id].as_user_marshal();
+                f.write_str("UserMarshal { ")?;
+                f.write_str("class_name: ")?;
+                self.print(&RubyValue::Symbol(user_marshal.class_name), f)?;
+                f.write_str(", wrapped_object: ")?;
+                self.print(&user_marshal.wrapped_object, f)?;
+                f.write_str(" }")?;
+                Ok(())
+            },
+            RubyValue::Uninitialized(_object_id) => {
+                f.write_str("RECURSION")
+            },
+        }
+    }
+}
+
+impl Display for Root {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.print(&self.root, f)
     }
 }
 
