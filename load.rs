@@ -1,8 +1,8 @@
-use std::{collections::HashMap, io::Read, string::ParseError};
+use std::{collections::HashMap, fmt::Display, io::Read, string::ParseError};
 use crate::ruby_marshal::values::*;
 
 #[derive(Debug)]
-enum LoadError {
+pub enum LoadError {
     IoError(String),
     ParserError(String),
 }
@@ -19,7 +19,20 @@ impl From<std::num::ParseFloatError> for LoadError {
     }
 }
 
-struct Loader<T: Read> {
+impl Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::ParserError(error) => {
+                f.write_str(&format!("Parser Error: {}", error))
+            }
+            LoadError::IoError(error) => {
+                f.write_str(&format!("IO Error: {}", error))
+            }
+        }
+    }
+}
+
+pub struct Loader<T: Read> {
     reader: T,
     symbols: Vec<String>,
     objects: Vec<RubyObject>,
