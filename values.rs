@@ -21,7 +21,7 @@ pub enum RubyValue {
     Hash(ObjectID),
     HashWithDefault(ObjectID),
     // Object(RubyObject),
-    // RegExp(String),
+    RegExp(ObjectID),
     String(ObjectID),
     // Struct(),
     // UserClass(),
@@ -40,7 +40,8 @@ pub enum RubyObject {
     Module(String),
     ClassOrModule(String),
     String(RubyString),
-    BigNum(i64)
+    BigNum(i64),
+    RegExp(RegExp),
 }
 
 #[derive(Debug)]
@@ -138,5 +139,42 @@ impl RubyString {
         } else {
             None
         }
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct RegExp {
+    pattern: String,
+    options: i8,
+    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+}
+
+impl RegExp {
+    pub fn new(pattern: String, options: i8) -> Self {
+        Self {pattern, options, instance_variables: None}
+    }
+
+    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+        self.instance_variables = Some(instance_variables);
+    }
+
+    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+        &self.instance_variables
+    }
+
+    pub fn get_instance_variable(&self, instance_variable: SymbolID) -> Option<&RubyValue> {
+        if let Some(instance_variables) = &self.instance_variables {
+            instance_variables.get(&instance_variable)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_pattern(&self) -> &String {
+        &self.pattern
+    }
+
+    pub fn get_options(&self) -> i8 {
+        self.options
     }
 }

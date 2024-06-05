@@ -73,6 +73,7 @@ impl<T: Read> Loader<T> {
             b'"' => RubyValue::String(self.read_string()?),
             b'I' => self.read_value_with_instance_variables()?,
             b'l' => RubyValue::BigNum(self.read_bignum()?),
+            b'/' => RubyValue::RegExp(self.read_regexp()?),
             _ => return Err(LoadError::ParserError(format!("Unknown value type: {}", buffer[0]))),
         };
 
@@ -208,6 +209,7 @@ impl<T: Read> Loader<T> {
                 RubyObject::ClassOrModule(_) => RubyValue::ClassOrModule(object_id),
                 RubyObject::String(_) => RubyValue::String(object_id),
                 RubyObject::BigNum(_) => RubyValue::BigNum(object_id),
+                RubyObject::RegExp(_) => RubyValue::RegExp(object_id),
             };
             Ok(ruby_value)
         } else {
@@ -300,6 +302,14 @@ impl<T: Read> Loader<T> {
                     _ => panic!("Got wrong object type"),
                 }
             }
+            RubyValue::RegExp(object_id) => {
+                match &mut self.objects[object_id] {
+                    RubyObject::RegExp(regexp) => {
+                        regexp.set_instance_variables(instance_variables);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
             object => return Err(LoadError::ParserError(format!("Object {:?} doesn't support instance variables", object)))
         }
 
@@ -343,6 +353,20 @@ impl<T: Read> Loader<T> {
         }
 
         self.objects.push(RubyObject::BigNum(value));
+        Ok(self.objects.len()-1)
+    }
+
+    fn read_regexp(&mut self) -> Result<ObjectID, LoadError> {
+        let pattern = self.read_sequence()?;
+
+        let mut buffer: [u8; 1] = [0; 1];
+        if let Err(err) = self.reader.read_exact(&mut buffer) {
+            return Err(LoadError::IoError(format!("Failed to read regexp's options byte: {}", err)));
+        }
+
+        let options = buffer[0] as i8;
+
+        self.objects.push(RubyObject::RegExp(RegExp::new(pattern, options)));
         Ok(self.objects.len()-1)
     }
 }
@@ -871,6 +895,53 @@ mod tests {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::BigNum(bignum) => {
                         assert_eq!(*bignum, 15241578750190521);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+
+        let input = b"\x04\x08l-\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::BigNum(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::BigNum(bignum) => {
+                        assert_eq!(*bignum, -15241578750190521);
+                    }
+                    _ => panic!("Got wrong object type"),
+                }
+            }
+            _ => panic!("Got wrong value type"),
+        }
+
+    }
+
+    #[test]
+    fn test_read_regexp() {
+        let input = b"\x04\x08I/\x08iii\x00\x06:\x06EF";
+        let reader = BufReader::new(&input[..]);
+        let loader = Loader::new(reader);
+        let result = loader.load().unwrap();
+
+        match result.get_root() {
+            RubyValue::RegExp(object_id) => {
+                match result.get_object(*object_id).unwrap() {
+                    RubyObject::RegExp(regexp) => {
+                        assert_eq!(regexp.get_pattern(), "iii");
+                        assert_eq!(regexp.get_options(), 0);
+                        let symbol_id = regexp.get_instance_variables().as_ref().unwrap().keys().next().unwrap();
+                        assert_eq!(result.get_symbol(*symbol_id).unwrap(), "E");
+                        match regexp.get_instance_variable(*symbol_id).unwrap() {
+                            RubyValue::Boolean(boolean) => {
+                                assert!(!*boolean);
+                            }
+                            _ => panic!("Got wrong value type"),
+                        }
                     }
                     _ => panic!("Got wrong object type"),
                 }
