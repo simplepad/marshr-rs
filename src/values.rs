@@ -2,6 +2,9 @@ use std::{collections::HashMap, fmt::{Display, Write}, ops::{Index, IndexMut}};
 
 use encoding::{label::encoding_from_whatwg_label, DecoderTrap, Encoding};
 
+pub const MARSHAL_MAJOR_VERSION: u8 = 4;
+pub const MARSHAL_MINOR_VERSION: u8 = 8;
+
 pub type ObjectID = usize;
 pub type SymbolID = usize;
 

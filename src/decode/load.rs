@@ -53,7 +53,7 @@ impl<T: Read> Loader<T> {
             return Err(LoadError::IoError(format!("Failed to read Marshal version: {}", err)));
         }
 
-        if buffer[0] > 4 || buffer[1] > 8 {
+        if buffer[0] > MARSHAL_MAJOR_VERSION || buffer[1] > MARSHAL_MINOR_VERSION {
             return Err(LoadError::ParserError("Unsupported Marshal version".to_string()));
         }
 
