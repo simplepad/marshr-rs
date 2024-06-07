@@ -995,7 +995,7 @@ mod tests {
             RubyValue::String(object_id) => {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::String(string) => {
-                        assert_eq!(result.decode_string(string).unwrap(), "Test");
+                        assert_eq!(string.get_string(), b"Test");
                     }
                     _ => panic!("Got wrong object type"),
                 }
@@ -1186,16 +1186,7 @@ mod tests {
                 match result.get_object(*object_id).unwrap() {
                     RubyObject::UserClass(user_class) => {
                         assert_eq!(result.get_symbol(user_class.get_name()).unwrap(), "Test");
-                        if let RubyValue::String(string) = user_class.get_wrapped_object() {
-                            match result.get_object(*string).unwrap() {
-                                RubyObject::String(string) => {
-                                    assert_eq!(result.decode_string(string).unwrap(), "a");
-                                }
-                                _ => panic!("Got wrong object type"),
-                            }
-                        } else {
-                            panic!("Got wrong value type");
-                        }
+                        assert_eq!(user_class.decode_wrapped_string(&result).unwrap(), "a");
                         let symbol_id = user_class.get_instance_variables().as_ref().unwrap().keys().next().unwrap();
                         assert_eq!(result.get_symbol(*symbol_id).unwrap(), "E");
                         match user_class.get_instance_variable(*symbol_id).unwrap() {

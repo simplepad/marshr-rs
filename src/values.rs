@@ -343,11 +343,18 @@ impl Root {
     }
 
     pub fn decode_string(&self, string: &RubyString) -> Result<String, RubyError> {
+        if let Some(string_instance_variables) = string.get_instance_variables() {
+            return self.decode_string_with_instance_variables(string, string_instance_variables);
+        }
+        Err(RubyError::EncodingError("Tried to decode a string in a binary encoding".to_string()))
+    }
+
+    fn decode_string_with_instance_variables(&self, string: &RubyString, instance_variables: &HashMap<SymbolID, RubyValue>) -> Result<String, RubyError> {
         if string.get_string().is_empty() {
             return Ok(String::new());
         }
         if let Some(encoding_symbol_id) = self.get_symbol_id("E") {
-            if let Some(encoding) = string.get_instance_variable(encoding_symbol_id) {
+            if let Some(encoding) = instance_variables.get(&encoding_symbol_id) {
                 let RubyValue::Boolean(boolean) = encoding else { panic!("Symbol E for string was not boolean")} ;
                 if *boolean {
                     return Ok(encoding::all::UTF_8.decode(string.get_string(), DecoderTrap::Strict).unwrap());
@@ -357,7 +364,7 @@ impl Root {
             }
         }
         if let Some(encoding_symbol_id) = self.get_symbol_id("encoding") {
-            if let Some(encoding) = string.get_instance_variable(encoding_symbol_id) {
+            if let Some(encoding) = instance_variables.get(&encoding_symbol_id) {
                 let RubyValue::String(encoding) = encoding else { panic!("Symbol encoding for string was not a string") };
                 let encoding = self.objects[*encoding].as_string();
                 let encoding_string = self.decode_string(encoding).unwrap(); // should be raw encoded
@@ -369,6 +376,7 @@ impl Root {
             }
         }
         Err(RubyError::EncodingError("Tried to decode a string in a binary encoding".to_string()))
+
     }
 
 
@@ -559,6 +567,10 @@ impl HashWithDefault {
         self.hash.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.hash.is_empty()
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &RubyValue> {
         self.hash.keys()
     }
@@ -712,6 +724,15 @@ impl UserClass {
 
     pub fn get_wrapped_object(&self) -> &RubyValue {
         &self.wrapped_object
+    }
+
+    pub fn decode_wrapped_string(&self, root: &Root) -> Result<String, RubyError> {
+        if let Some(instance_variables) = &self.instance_variables {
+            let inner_string = root.get_object(self.wrapped_object.as_string()).unwrap().as_string();
+            root.decode_string_with_instance_variables(inner_string, instance_variables)
+        } else {
+            Err(RubyError::EncodingError("Tried to decode a string in a binary encoding".to_string()))
+        }
     }
 
     pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
