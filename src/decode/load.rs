@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt::Display, io::Read};
-use crate::ruby_marshal::values::*;
+use crate::values::*;
 
 #[derive(Debug)]
 pub enum LoadError {
