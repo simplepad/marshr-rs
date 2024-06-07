@@ -32,22 +32,29 @@ impl Display for LoadError {
     }
 }
 
-pub struct Loader<T: Read> {
-    reader: T,
+pub struct Loader<'a, T: Read> {
+    reader: &'a mut T,
     symbols: Vec<String>,
     objects: Vec<RubyObject>,
 }
 
-impl<T: Read> Loader<T> {
-    pub fn new(reader: T) -> Self {
-        Loader {
+impl<'a, T: Read> Loader<'a, T> {
+    pub fn new(reader: &'a mut T) -> Self {
+        Self {
             reader,
             symbols: Vec::new(),
             objects: Vec::new(),
         }
     }
 
-    pub fn load(mut self) -> Result<Root, LoadError> {
+    fn reset(&mut self) {
+        self.symbols.clear();
+        self.objects.clear();
+    }
+
+    pub fn load(&mut self) -> Result<Root, LoadError> {
+        self.reset();
+
         let mut buffer: [u8; 2] = [0; 2];
         if let Err(err) = self.reader.read_exact(&mut buffer) {
             return Err(LoadError::IoError(format!("Failed to read Marshal version: {}", err)));
@@ -59,7 +66,7 @@ impl<T: Read> Loader<T> {
 
         let value = self.read_value()?;
 
-        Ok(Root::new(value, self.symbols, self.objects))
+        Ok(Root::new(value, self.symbols.clone(), self.objects.clone()))
     }
 
     fn read_value(&mut self) -> Result<RubyValue, LoadError> {
@@ -521,16 +528,16 @@ mod tests {
     #[test]
     fn test_read_nil() {
         let input = b"\x04\x080";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
 
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::Nil);
 
         let input = b"\x04\x08a";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
 
         let result = loader.load();
         assert!(result.is_err());
@@ -542,16 +549,16 @@ mod tests {
     #[test]
     fn test_read_boolean() {
         let input = b"\x04\x08T";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
 
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::Boolean(true));
 
         let input = b"\x04\x08F";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
 
         let result = loader.load();
         assert!(result.is_ok());
@@ -561,85 +568,85 @@ mod tests {
     #[test]
     fn test_read_fixnum() {
         let input = b"\x04\x08i\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(0));
 
         let input = b"\x04\x08i\x7f";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(122));
 
         let input = b"\x04\x08i\x80";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(-123));
 
         let input = b"\x04\x08i\x01\xc8";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(200));
 
         let input = b"\x04\x08i\xff\x38";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(-200));
 
         let input = b"\x04\x08i\x02\xe8\x80";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(33000));
 
         let input = b"\x04\x08i\xfe\x18\x7f";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(-33000));
 
         let input = b"\x04\x08i\x03\xff\xff\xff";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(16777215));
 
         let input = b"\x04\x08i\xfd\x01\x00\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(-16777215));
 
         let input = b"\x04\x08i\x04\xff\xff\xff\x3f";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(1073741823));
 
         let input = b"\x04\x08i\xfc\x00\x00\x00\xc0";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(-1073741824));
 
         let input = b"\x04\x08i\x04\x00\x00\x00\x40";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(1073741824));
@@ -648,8 +655,8 @@ mod tests {
     #[test]
     fn test_read_symbol() {
         let input = b"\x04\x08:\x0ahello";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
 
         let result = loader.load().unwrap();
         let root = result.get_root();
@@ -665,8 +672,8 @@ mod tests {
     #[test]
     fn test_read_symbol_link() {
         let input = b"\x04\x08[\x07:\x0ahello;\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
         match result.get_root() {
             RubyValue::Array(object_id) => {
@@ -695,8 +702,8 @@ mod tests {
     #[test]
     fn test_read_array() {
         let input = b"\x04\x08[\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -713,8 +720,8 @@ mod tests {
         assert_eq!(result.get_objects().len(), 1);
 
         let input = b"\x04\x08[\x07i\x7fi\x7f";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -745,8 +752,8 @@ mod tests {
     #[test]
     fn test_read_float() {
         let input = b"\x04\x08f\x08inf";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -762,8 +769,8 @@ mod tests {
         }
 
         let input = b"\x04\x08f\x09-inf";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -779,8 +786,8 @@ mod tests {
         }
 
         let input = b"\x04\x08f\x08nan";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -796,8 +803,8 @@ mod tests {
         }
 
         let input = b"\x04\x08f\x092.55";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -813,8 +820,8 @@ mod tests {
         }
 
         let input = b"\x04\x08[\x07f\x092.55@\x06";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -851,8 +858,8 @@ mod tests {
     #[test]
     fn test_read_hash() {
         let input = b"\x04\x08{\x06:\x06ai\x06";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -886,8 +893,8 @@ mod tests {
     #[test]
     fn test_read_hash_with_default() {
         let input = b"\x04\x08}\x06:\x06ai\x06i\x07";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -927,8 +934,8 @@ mod tests {
     #[test]
     fn test_read_class() {
         let input = b"\x04\x08c\x09Test";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -947,8 +954,8 @@ mod tests {
     #[test]
     fn test_read_module() {
         let input = b"\x04\x08m\x09Test";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -967,8 +974,8 @@ mod tests {
     #[test]
     fn test_read_class_or_module() {
         let input = b"\x04\x08M\x09Test";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -987,8 +994,8 @@ mod tests {
     #[test]
     fn test_read_string() {
         let input = b"\x04\x08\"\x09Test";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1007,8 +1014,8 @@ mod tests {
     #[test]
     fn test_read_instance_variables() {
         let input = b"\x04\x08I\"\x09Test\x06:\x06ET";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1036,8 +1043,8 @@ mod tests {
     #[test]
     fn test_read_bignum() {
         let input = b"\x04\x08l+\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1053,8 +1060,8 @@ mod tests {
         }
 
         let input = b"\x04\x08l-\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1074,8 +1081,8 @@ mod tests {
     #[test]
     fn test_read_regexp() {
         let input = b"\x04\x08I/\x08iii\x00\x06:\x06EF";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1100,8 +1107,8 @@ mod tests {
         }
 
         let input = b"\x04\x08l-\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1121,8 +1128,8 @@ mod tests {
     #[test]
     fn test_read_struct() {
         let input = b"\x04\x08S:\x09Test\x06:\x06ai\x06";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1149,8 +1156,8 @@ mod tests {
     #[test]
     fn test_read_object() {
         let input = b"\x04\x08o:\x09Test\x06:\x07@ai\x06";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1177,8 +1184,8 @@ mod tests {
     #[test]
     fn test_read_user_class() {
         let input = b"\x04\x08IC:\x09Test\"\x06a\x06:\x06ET";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1206,8 +1213,8 @@ mod tests {
     #[test]
     fn test_read_user_defined() {
         let input = b"\x04\x08Iu:\x09Test\x061\x06:\x06EF";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1235,8 +1242,8 @@ mod tests {
     #[test]
     fn test_read_user_marshal() {
         let input = b"\x04\x08U:\x09Testi\x06";
-        let reader = BufReader::new(&input[..]);
-        let loader = Loader::new(reader);
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
         let result = loader.load().unwrap();
 
         match result.get_root() {
@@ -1255,5 +1262,34 @@ mod tests {
             }
             _ => panic!("Got wrong value type"),
         }
+    }
+
+    #[test]
+    fn test_read_concatenated_objects() {
+        let input = b"\x04\x08i\x06\x04\x08i\x07";
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
+        let result = loader.load().unwrap();
+
+        assert_eq!(result.get_root().as_fixnum(), 1);
+
+        let result = loader.load().unwrap();
+
+        assert_eq!(result.get_root().as_fixnum(), 2);
+
+        // test that object table and symbol table are reset
+
+        let input = b"\x04\x08o:\x09Test\x00\x04\x08o:\x09Test\x00";
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
+        let result = loader.load().unwrap();
+
+        assert_eq!(result.get_symbols().len(), 1);
+        assert_eq!(result.get_objects().len(), 1);
+
+        let result = loader.load().unwrap();
+
+        assert_eq!(result.get_symbols().len(), 1);
+        assert_eq!(result.get_objects().len(), 1);
     }
 }

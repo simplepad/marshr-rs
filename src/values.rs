@@ -13,7 +13,7 @@ pub enum RubyError {
     EncodingError(String)
 }
 
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum RubyValue {
     Nil,
     Boolean(bool),
@@ -166,7 +166,7 @@ impl RubyValue {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum RubyObject {
     Empty, // for the 0th element (ruby object index starts with 1)
     Array(Vec<RubyValue>),
@@ -555,7 +555,7 @@ impl Display for Root {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct HashWithDefault {
     hash: HashMap<RubyValue, RubyValue>,
     default: RubyValue,
@@ -592,7 +592,7 @@ impl<'a> IndexMut<&'a RubyValue> for HashWithDefault {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct RubyString {
     string: Vec<u8>,
     instance_variables: Option<HashMap<SymbolID, RubyValue>>,
@@ -624,7 +624,7 @@ impl RubyString {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct RegExp {
     pattern: String,
     options: i8,
@@ -661,7 +661,7 @@ impl RegExp {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct Struct {
     name: SymbolID,
     members: HashMap<SymbolID, RubyValue>,
@@ -685,7 +685,7 @@ impl Struct {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct Object {
     class_name: SymbolID,
     instance_variables: HashMap<SymbolID, RubyValue>,
@@ -709,7 +709,7 @@ impl Object {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct UserClass {
     name: SymbolID,
     wrapped_object: RubyValue,
@@ -756,7 +756,7 @@ impl UserClass {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct UserDefined {
     class_name: SymbolID,
     data: Vec<u8>,
@@ -794,7 +794,7 @@ impl UserDefined {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct UserMarshal {
     class_name: SymbolID,
     wrapped_object: RubyValue,
