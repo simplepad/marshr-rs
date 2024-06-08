@@ -43,10 +43,10 @@ impl<'a, T: Write> Dumper<'a, T> {
             return Err(DumpError::IoError(format!("Could not write Marshal version: {}", err)));
         }
 
-        self.dump_object(root, object)
+        self.dump_value(root, object)
     }
 
-    fn dump_object(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
+    fn dump_value(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
         match object {
             RubyValue::Nil => self.write_nil(),
             RubyValue::Boolean(boolean) => self.write_boolean(*boolean),
