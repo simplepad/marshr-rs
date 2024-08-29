@@ -140,181 +140,53 @@ mod tests {
 
     use super::*;
 
+    macro_rules! assert_output_is {
+        ($i:literal) => {
+            let mut output = Vec::<u8>::new();
+            let mut dumper = Dumper::new(&mut output, 0);
+
+            let input = $i;
+            let mut reader = BufReader::new(&input[..]);
+            let mut loader = Loader::new(&mut reader);
+
+            let root = loader.load().unwrap();
+            dumper.dump(&root, root.get_root()).unwrap();
+
+            assert_eq!(input[..], output);
+        };
+    }
+
     #[test]
     fn test_write_nil() {
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x080";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-
-        let root = loader.load().unwrap();
-        dumper.dump(&root, root.get_root()).unwrap();
-
-        assert_eq!(input[..], output);
+        assert_output_is!(b"\x04\x080");
     }
 
     #[test]
     fn test_write_boolean() {
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08T";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-
-        let root = loader.load().unwrap();
-        dumper.dump(&root, root.get_root()).unwrap();
-
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08F";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-
-        let root = loader.load().unwrap();
-        dumper.dump(&root, root.get_root()).unwrap();
-
-        assert_eq!(input[..], output);
+        assert_output_is!(b"\x04\x08T");
+        assert_output_is!(b"\x04\x08F");
     }
 
     #[test]
     fn test_write_fixnum() {
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
+        assert_output_is!(b"\x04\x08i\x00");
+        assert_output_is!(b"\x04\x08i\x7f");
+        assert_output_is!(b"\x04\x08i\x80");
+        assert_output_is!(b"\x04\x08i\x01\xc8");
+        assert_output_is!(b"\x04\x08i\xff\x38");
+        assert_output_is!(b"\x04\x08i\x02\xe8\x80");
+        assert_output_is!(b"\x04\x08i\xfe\x18\x7f");
+        assert_output_is!(b"\x04\x08i\x03\xff\xff\xff");
+        assert_output_is!(b"\x04\x08i\xfd\x01\x00\x00");
+        assert_output_is!(b"\x04\x08i\x04\xff\xff\xff\x3f");
+        assert_output_is!(b"\x04\x08i\xfc\x00\x00\x00\xc0");
+        assert_output_is!(b"\x04\x08i\x04\x00\x00\x00\x40");
+    }
 
-        let input = b"\x04\x08i\x00";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x7f";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x80";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x01\xc8";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\xff\x38";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x02\xe8\x80";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\xfe\x18\x7f";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x03\xff\xff\xff";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\xfd\x01\x00\x00";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x04\xff\xff\xff\x3f";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\xfc\x00\x00\x00\xc0";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
-
-        let mut output = Vec::<u8>::new();
-        let mut dumper = Dumper::new(&mut output);
-
-        let input = b"\x04\x08i\x04\x00\x00\x00\x40";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        dumper.dump(&result, result.get_root()).unwrap();
-        assert_eq!(input[..], output);
+    #[test]
+    fn test_write_symbol() {
+        assert_output_is!(b"\x04\x08:\x0ahello");
+        // assert_output_is!(b"\x04\x08[\x07:\x0ahello;\x00"); // needs arrays support
     }
 }
 
