@@ -64,6 +64,7 @@ impl<'a, T: Write> Dumper<'a, T> {
             RubyValue::Boolean(boolean) => if *boolean { self.write(&[b'T']) } else { self.write(&[b'F']) },
             RubyValue::FixNum(fixnum) => { self.write(&[b'i'])?; self.write_fixnum(*fixnum) },
             RubyValue::Symbol(symbol_id) => self.write_symbol(root, *symbol_id),
+            RubyValue::Array(object_id) => self.write_array(root, *object_id),
             _ => todo!(),
         }
 
@@ -125,11 +126,37 @@ impl<'a, T: Write> Dumper<'a, T> {
             self.write_fixnum(symbol_id.try_into().unwrap())?;
         } else {
             // symbol hasn't been written before, writing a symbol
+            self.symbols[symbol_id] = true;
             self.write(&[b':'])?;
             self.write_byte_sequence(root.get_symbol(symbol_id).unwrap().as_bytes())?;
-            self.symbols[symbol_id] = true;
         }
 
+        Ok(())
+    }
+
+    fn write_object_link(&mut self, object_id: ObjectID) -> Result<(), DumpError> {
+        self.write(&[b'@'])?;
+        self.write_fixnum(object_id.try_into().unwrap())
+    }
+
+    fn write_array(&mut self, root: &Root, object_id: ObjectID) -> Result<(), DumpError> {
+        self.write(&[b'['])?;
+        if self.objects[object_id] {
+            // array has been written before, writing an object link
+            self.write_object_link(object_id)?;
+        } else {
+            // array hasn't been written before, writing an array
+            self.objects[object_id] = true;
+            let array = root.get_object(object_id).unwrap().as_array();
+            if let Ok(array_len) = array.len().try_into() {
+                self.write_fixnum(array_len)?;
+                for value in array {
+                    self.dump_value(root, value)?;
+                }
+            } else {
+                return Err(DumpError::EncoderError("Could not write array length, the length doesn't fit into an i32".to_string()));
+            }
+        }
         Ok(())
     }
 
@@ -189,7 +216,13 @@ mod tests {
     #[test]
     fn test_write_symbol() {
         assert_output_is!(b"\x04\x08:\x0ahello");
-        // assert_output_is!(b"\x04\x08[\x07:\x0ahello;\x00"); // needs arrays support
+        assert_output_is!(b"\x04\x08[\x07:\x0ahello;\x00");
+    }
+
+    #[test]
+    fn test_write_array() {
+        assert_output_is!(b"\x04\x08[\x00");
+        assert_output_is!(b"\x04\x08[\x07i\x7fi\x7f");
     }
 }
 
