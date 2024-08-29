@@ -4,6 +4,7 @@ use crate::values::*;
 #[derive(Debug)]
 pub enum DumpError {
     IoError(String),
+    EncoderError(String),
 }
 
 impl Display for DumpError {
@@ -12,110 +13,120 @@ impl Display for DumpError {
             DumpError::IoError(error) => {
                 f.write_str(&format!("IO Error: {}", error))
             }
+            DumpError::EncoderError(error) => {
+                f.write_str(&format!("Encoder Error: {}", error))
+            }
         }
     }
 }
 
 pub struct Dumper<'a, T: Write> {
     writer: &'a mut T,
-    symbols: Vec<String>,
+    /// length is equal to the number of symbols, `symbols[i]` holds `true` if the symbol with id `i` has already been written
+    symbols: Vec<bool>, 
     objects: Vec<RubyObject>,
 }
 
 impl<'a, T: Write> Dumper<'a, T> {
-    pub fn new(writer: &'a mut T) -> Self {
+    pub fn new(writer: &'a mut T, number_of_symbols: usize) -> Self {
         Self {
             writer,
-            symbols: Vec::new(),
+            symbols: vec![false; number_of_symbols],
             objects: Vec::new(),
         }
     }
 
-    fn reset(&mut self) {
-        self.symbols.clear();
+    fn reset(&mut self, number_of_symbols: usize) {
+        self.symbols = vec![false; number_of_symbols];
         self.objects.clear();
     }
 
-    pub fn dump(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
-        self.reset();
-
-        if let Err(err) = self.writer.write_all(&[MARSHAL_MAJOR_VERSION, MARSHAL_MINOR_VERSION]) {
-            return Err(DumpError::IoError(format!("Could not write Marshal version: {}", err)));
+    fn write(&mut self, data: &[u8]) -> Result<(), DumpError> {
+        if let Err(err) = self.writer.write_all(data) {
+            return Err(DumpError::IoError(format!("Could not write data: {}", err)));
         }
+        Ok(())
+    }
+
+    pub fn dump(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
+        self.reset(root.get_symbols().len());
+
+        self.write(&[MARSHAL_MAJOR_VERSION, MARSHAL_MINOR_VERSION])?;
 
         self.dump_value(root, object)
     }
 
     fn dump_value(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
         match object {
-            RubyValue::Nil => self.write_nil(),
-            RubyValue::Boolean(boolean) => self.write_boolean(*boolean),
-            RubyValue::FixNum(fixnum) => self.write_fixnum(*fixnum),
+            RubyValue::Nil => self.write(&[b'0']),
+            RubyValue::Boolean(boolean) => if *boolean { self.write(&[b'T']) } else { self.write(&[b'F']) },
+            RubyValue::FixNum(fixnum) => { self.write(&[b'i'])?; self.write_fixnum(*fixnum) },
+            RubyValue::Symbol(symbol_id) => self.write_symbol(root, *symbol_id),
             _ => todo!(),
         }
 
     }
 
-    fn write_nil(&mut self) -> Result<(), DumpError> {
-        if let Err(err) = self.writer.write_all(&[b'0']) {
-            return Err(DumpError::IoError(format!("Could not write nil value: {}", err)));
-        }
-        Ok(())
-    }
-
-    fn write_boolean(&mut self, boolean: bool) -> Result<(), DumpError> {
-        let mut output = [b'F'];
-
-        if boolean {
-            output[0] = b'T';
-        }
-
-        if let Err(err) = self.writer.write_all(&output) {
-            return Err(DumpError::IoError(format!("Could not write boolean value: {}", err)));
-        }
-        Ok(())
-    }
-
     fn write_fixnum(&mut self, mut number: i32) -> Result<(), DumpError> {
-        let mut output = [0; std::mem::size_of::<i32>() + 2];
-        output[0] = b'i';
-        let mut bytes_written = 1;
+        let mut output = [0; std::mem::size_of::<i32>() + 1];
+        let mut bytes_written = 0;
 
         match number {
             0 => {
-                output[1] = 0x00;
+                output[0] = 0x00;
                 bytes_written += 1;
             },
             1 ..= 122 => {
-                output[1] = (number as i8 + 5).to_le_bytes()[0];
+                output[0] = (number as i8 + 5).to_le_bytes()[0];
                 bytes_written += 1;
             },
             -123 ..= -1 => {
-                output[1] = (number as i8 - 5).to_le_bytes()[0];
+                output[0] = (number as i8 - 5).to_le_bytes()[0];
                 bytes_written += 1;
             },
             _ => {
                 bytes_written += 1; // for fixnum size
-                for i in 2..(std::mem::size_of::<i32>() + 2) {
+                for i in 1..(std::mem::size_of::<i32>() + 1) {
                     output[i] = u8::try_from(number & 0xFF).unwrap();
                     bytes_written += 1;
 
                     number >>= 8;
                     if number == 0 {
-                        output[1] = u8::try_from(i-1).unwrap();
+                        output[0] = u8::try_from(i).unwrap();
                         break;
                     }
                     if number == -1 {
-                        output[1] = (-i8::try_from(i-1).unwrap()) as u8;
+                        output[0] = (-i8::try_from(i).unwrap()) as u8;
                         break;
                     }
                 }
             }
         }
 
-        if let Err(err) = self.writer.write_all(&output[..bytes_written]) {
-            return Err(DumpError::IoError(format!("Could not write fixnum value: {}", err)));
+        self.write(&output[..bytes_written])
+    }
+
+    fn write_byte_sequence(&mut self, sequence: &[u8]) -> Result<(), DumpError> {
+        if let Ok(sequence_len) = i32::try_from(sequence.len()) {
+            self.write_fixnum(sequence_len)?;
+        } else {
+            return Err(DumpError::EncoderError("Could not write byte sequence length, the length doesn't fit into an i32".to_string()));
         }
+
+        self.write(sequence)
+    }
+
+    fn write_symbol(&mut self, root: &Root, symbol_id: SymbolID) -> Result<(), DumpError> {
+        if self.symbols[symbol_id] {
+            // symbol has been written before, writing a symbol link
+            self.write(&[b';'])?;
+            self.write_fixnum(symbol_id.try_into().unwrap())?;
+        } else {
+            // symbol hasn't been written before, writing a symbol
+            self.write(&[b':'])?;
+            self.write_byte_sequence(root.get_symbol(symbol_id).unwrap().as_bytes())?;
+        }
+
         Ok(())
     }
 
