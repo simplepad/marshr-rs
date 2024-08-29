@@ -207,22 +207,18 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_float(&mut self) -> Result<ObjectID, LoadError> {
-        let mut float_sequence = self.read_byte_sequence()?;
+        let float_sequence = self.read_byte_sequence()?;
 
-        let float_val = match float_sequence.as_slice() {
-            b"inf" => f64::INFINITY,
-            b"-inf" => f64::NEG_INFINITY,
-            b"nan" => f64::NAN,
-            _ => {
-                // replicating ruby's parsing
-                float_sequence.push(0); // make sure its null-terminated
-                let value: f64 = unsafe { libc::strtod(float_sequence.as_ptr() as *const i8, std::ptr::null_mut()) };
-                value
-            } 
-        };
-
-        self.objects.push(RubyObject::Float(float_val));
-        Ok(self.objects.len()-1)
+        if let Ok(float_str) = std::str::from_utf8(&float_sequence) {
+            if let Ok(float_value) = float_str.parse() {
+                self.objects.push(RubyObject::Float(float_value));
+                Ok(self.objects.len()-1)
+            } else {
+                Err(LoadError::ParserError("Could not parse float from float string".to_string()))
+            }
+        } else {
+            Err(LoadError::ParserError("Could not parse float as valid utf-8".to_string()))
+        }
     }
 
     fn read_object_link(&mut self) -> Result<RubyValue, LoadError> {
