@@ -24,21 +24,23 @@ pub struct Dumper<'a, T: Write> {
     writer: &'a mut T,
     /// length is equal to the number of symbols, `symbols[i]` holds `true` if the symbol with id `i` has already been written
     symbols: Vec<bool>, 
-    objects: Vec<RubyObject>,
+    /// length is equal to the number of objects + 1 (0th object is the root), `objects[i]` holds `true` if the object with id `i` has already been written
+    objects: Vec<bool>,
 }
 
 impl<'a, T: Write> Dumper<'a, T> {
-    pub fn new(writer: &'a mut T, number_of_symbols: usize) -> Self {
+    pub fn new(writer: &'a mut T) -> Self {
         Self {
             writer,
-            symbols: vec![false; number_of_symbols],
+            symbols: Vec::new(),
             objects: Vec::new(),
         }
     }
 
-    fn reset(&mut self, number_of_symbols: usize) {
+    fn reset(&mut self, number_of_symbols: usize, number_of_objects: usize) {
+        // TODO: use reserve()
         self.symbols = vec![false; number_of_symbols];
-        self.objects.clear();
+        self.objects = vec![false; number_of_objects+1];
     }
 
     fn write(&mut self, data: &[u8]) -> Result<(), DumpError> {
@@ -49,7 +51,7 @@ impl<'a, T: Write> Dumper<'a, T> {
     }
 
     pub fn dump(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
-        self.reset(root.get_symbols().len());
+        self.reset(root.get_symbols().len(), root.get_objects().len());
 
         self.write(&[MARSHAL_MAJOR_VERSION, MARSHAL_MINOR_VERSION])?;
 
@@ -125,6 +127,7 @@ impl<'a, T: Write> Dumper<'a, T> {
             // symbol hasn't been written before, writing a symbol
             self.write(&[b':'])?;
             self.write_byte_sequence(root.get_symbol(symbol_id).unwrap().as_bytes())?;
+            self.symbols[symbol_id] = true;
         }
 
         Ok(())
@@ -143,7 +146,7 @@ mod tests {
     macro_rules! assert_output_is {
         ($i:literal) => {
             let mut output = Vec::<u8>::new();
-            let mut dumper = Dumper::new(&mut output, 0);
+            let mut dumper = Dumper::new(&mut output);
 
             let input = $i;
             let mut reader = BufReader::new(&input[..]);
