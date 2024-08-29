@@ -65,6 +65,7 @@ impl<'a, T: Write> Dumper<'a, T> {
             RubyValue::FixNum(fixnum) => { self.write(&[b'i'])?; self.write_fixnum(*fixnum) },
             RubyValue::Symbol(symbol_id) => self.write_symbol(root, *symbol_id),
             RubyValue::Array(object_id) => self.write_array(root, *object_id),
+            RubyValue::Float(object_id) => self.write_float(root, *object_id),
             _ => todo!(),
         }
 
@@ -140,12 +141,12 @@ impl<'a, T: Write> Dumper<'a, T> {
     }
 
     fn write_array(&mut self, root: &Root, object_id: ObjectID) -> Result<(), DumpError> {
-        self.write(&[b'['])?;
         if self.objects[object_id] {
             // array has been written before, writing an object link
             self.write_object_link(object_id)?;
         } else {
             // array hasn't been written before, writing an array
+            self.write(&[b'['])?;
             self.objects[object_id] = true;
             let array = root.get_object(object_id).unwrap().as_array();
             if let Ok(array_len) = array.len().try_into() {
@@ -155,6 +156,24 @@ impl<'a, T: Write> Dumper<'a, T> {
                 }
             } else {
                 return Err(DumpError::EncoderError("Could not write array length, the length doesn't fit into an i32".to_string()));
+            }
+        }
+        Ok(())
+    }
+
+    fn write_float(&mut self, root: &Root, object_id: ObjectID) -> Result<(), DumpError> {
+        if self.objects[object_id] {
+            // float has been written before, writing an object link
+            self.write_object_link(object_id)?;
+        } else {
+            // float hasn't been written before, writing an float
+            self.write(&[b'f'])?;
+            self.objects[object_id] = true;
+            let float = root.get_object(object_id).unwrap().as_float();
+            if float.is_nan() {
+                self.write_byte_sequence(b"nan")?; // float.to_string() returns NaN
+            } else {
+                self.write_byte_sequence(float.to_string().as_bytes())?;
             }
         }
         Ok(())
@@ -223,6 +242,15 @@ mod tests {
     fn test_write_array() {
         assert_output_is!(b"\x04\x08[\x00");
         assert_output_is!(b"\x04\x08[\x07i\x7fi\x7f");
+    }
+
+    #[test]
+    fn test_write_float() {
+        assert_output_is!(b"\x04\x08f\x08inf");
+        assert_output_is!(b"\x04\x08f\x09-inf");
+        assert_output_is!(b"\x04\x08f\x08nan");
+        assert_output_is!(b"\x04\x08f\x092.55");
+        assert_output_is!(b"\x04\x08[\x07f\x092.55@\x06");
     }
 }
 
