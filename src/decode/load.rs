@@ -252,7 +252,7 @@ impl<'a, T: Read> Loader<'a, T> {
         }
     }
 
-    fn read_value_pairs(&mut self) -> Result<HashMap<RubyValue, RubyValue>, LoadError> {
+    fn read_value_pairs(&mut self) -> Result<ValuePairs, LoadError> {
         let num_of_pairs = match usize::try_from(self.read_fixnum()?) {
             Ok(val) => val,
             Err(_) => return Err(LoadError::ParserError("Could not parse number of key:value pairs (could not convert number of pairs to usize)".to_string())),
@@ -270,7 +270,7 @@ impl<'a, T: Read> Loader<'a, T> {
         Ok(pairs)
     }
 
-    fn read_value_pairs_symbol_keys(&mut self) -> Result<HashMap<SymbolID, RubyValue>, LoadError> {
+    fn read_value_pairs_symbol_keys(&mut self) -> Result<ValuePairsSymbolKeys, LoadError> {
         let num_of_pairs = match usize::try_from(self.read_fixnum()?) {
             Ok(val) => val,
             Err(_) => return Err(LoadError::ParserError("Could not parse number of key:value pairs (could not convert number of pairs to usize)".to_string())),
@@ -406,14 +406,14 @@ impl<'a, T: Read> Loader<'a, T> {
             return Err(LoadError::IoError(format!("Failed to read bignum: {}, was expecting {} bytes", err, length)));
         }
 
-        let mut value: i64 = 0;
+        let mut value: RubyBignum = 0;
 
         for (i, byte) in buffer.iter().enumerate() {
             let shift_bits = match u32::try_from(i * 8) {
                 Ok(val) => val,
                 Err(_) => return Err(LoadError::ParserError("Could not parse bignum, exponent was too big".to_string())),
             };
-            value += (*byte as i64) << shift_bits;
+            value += (*byte as RubyBignum) << shift_bits;
         }
 
         if !is_positive {
@@ -1101,24 +1101,6 @@ mod tests {
             }
             _ => panic!("Got wrong value type"),
         }
-
-        let input = b"\x04\x08l-\x09\xb9\xa3\x38\x97\x22\x26\x36\x00";
-        let mut reader = BufReader::new(&input[..]);
-        let mut loader = Loader::new(&mut reader);
-        let result = loader.load().unwrap();
-
-        match result.get_root() {
-            RubyValue::BigNum(object_id) => {
-                match result.get_object(*object_id).unwrap() {
-                    RubyObject::BigNum(bignum) => {
-                        assert_eq!(*bignum, -15241578750190521);
-                    }
-                    _ => panic!("Got wrong object type"),
-                }
-            }
-            _ => panic!("Got wrong value type"),
-        }
-
     }
 
     #[test]

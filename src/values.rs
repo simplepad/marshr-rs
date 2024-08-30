@@ -13,6 +13,10 @@ pub enum RubyError {
     EncodingError(String)
 }
 
+pub type RubyBignum = i64;
+pub type ValuePairs = HashMap<RubyValue, RubyValue>;
+pub type ValuePairsSymbolKeys = HashMap<SymbolID, RubyValue>;
+
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum RubyValue {
     Nil,
@@ -177,7 +181,7 @@ pub enum RubyObject {
     Module(String),
     ClassOrModule(String),
     String(RubyString),
-    BigNum(i64),
+    BigNum(RubyBignum),
     RegExp(RegExp),
     Struct(Struct),
     Object(Object),
@@ -243,7 +247,7 @@ impl RubyObject {
         }
     }
 
-    pub fn as_bignum(&self) -> i64 {
+    pub fn as_bignum(&self) -> RubyBignum {
         match self {
             RubyObject::BigNum(object) => *object,
             _ => panic!("Not a bignum"),
@@ -352,7 +356,7 @@ impl Root {
         Err(RubyError::EncodingError("Tried to decode a string in a binary encoding".to_string()))
     }
 
-    fn decode_string_with_instance_variables(&self, string: &RubyString, instance_variables: &HashMap<SymbolID, RubyValue>) -> Result<String, RubyError> {
+    fn decode_string_with_instance_variables(&self, string: &RubyString, instance_variables: &ValuePairsSymbolKeys) -> Result<String, RubyError> {
         if string.get_string().is_empty() {
             return Ok(String::new());
         }
@@ -577,6 +581,14 @@ impl HashWithDefault {
     pub fn keys(&self) -> impl Iterator<Item = &RubyValue> {
         self.hash.keys()
     }
+
+    pub fn hash(&self) -> &ValuePairs {
+        &self.hash
+    }
+
+    pub fn default(&self) -> &RubyValue {
+        &self.default
+    }
 }
 
 impl<'a> Index<&'a RubyValue> for HashWithDefault {
@@ -595,7 +607,7 @@ impl<'a> IndexMut<&'a RubyValue> for HashWithDefault {
 #[derive(PartialEq, Clone, Debug)]
 pub struct RubyString {
     string: Vec<u8>,
-    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+    instance_variables: Option<ValuePairsSymbolKeys>,
 }
 
 impl RubyString {
@@ -607,11 +619,11 @@ impl RubyString {
         &self.string
     }
 
-    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+    pub fn set_instance_variables(&mut self, instance_variables: ValuePairsSymbolKeys) {
         self.instance_variables = Some(instance_variables);
     }
 
-    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+    pub fn get_instance_variables(&self) -> &Option<ValuePairsSymbolKeys> {
         &self.instance_variables
     }
 
@@ -628,7 +640,7 @@ impl RubyString {
 pub struct RegExp {
     pattern: String,
     options: i8,
-    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+    instance_variables: Option<ValuePairsSymbolKeys>,
 }
 
 impl RegExp {
@@ -636,11 +648,11 @@ impl RegExp {
         Self {pattern, options, instance_variables: None}
     }
 
-    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+    pub fn set_instance_variables(&mut self, instance_variables: ValuePairsSymbolKeys) {
         self.instance_variables = Some(instance_variables);
     }
 
-    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+    pub fn get_instance_variables(&self) -> &Option<ValuePairsSymbolKeys> {
         &self.instance_variables
     }
 
@@ -664,11 +676,11 @@ impl RegExp {
 #[derive(PartialEq, Clone, Debug)]
 pub struct Struct {
     name: SymbolID,
-    members: HashMap<SymbolID, RubyValue>,
+    members: ValuePairsSymbolKeys,
 }
 
 impl Struct {
-    pub fn new(name: SymbolID, members: HashMap<SymbolID, RubyValue>) -> Self {
+    pub fn new(name: SymbolID, members: ValuePairsSymbolKeys) -> Self {
        Self {name, members} 
     }
 
@@ -676,7 +688,7 @@ impl Struct {
         self.name
     }
 
-    pub fn get_members(&self) -> &HashMap<SymbolID, RubyValue> {
+    pub fn get_members(&self) -> &ValuePairsSymbolKeys {
         &self.members
     }
 
@@ -688,11 +700,11 @@ impl Struct {
 #[derive(PartialEq, Clone, Debug)]
 pub struct Object {
     class_name: SymbolID,
-    instance_variables: HashMap<SymbolID, RubyValue>,
+    instance_variables: ValuePairsSymbolKeys,
 }
 
 impl Object {
-    pub fn new(class_name: SymbolID, instance_variables: HashMap<SymbolID, RubyValue>) -> Self {
+    pub fn new(class_name: SymbolID, instance_variables: ValuePairsSymbolKeys) -> Self {
        Self {class_name, instance_variables} 
     }
 
@@ -700,7 +712,7 @@ impl Object {
         self.class_name
     }
 
-    pub fn get_instance_variables(&self) -> &HashMap<SymbolID, RubyValue> {
+    pub fn get_instance_variables(&self) -> &ValuePairsSymbolKeys {
         &self.instance_variables
     }
 
@@ -713,7 +725,7 @@ impl Object {
 pub struct UserClass {
     name: SymbolID,
     wrapped_object: RubyValue,
-    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+    instance_variables: Option<ValuePairsSymbolKeys>,
 }
 
 impl UserClass {
@@ -738,12 +750,12 @@ impl UserClass {
         }
     }
 
-    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+    pub fn set_instance_variables(&mut self, instance_variables: ValuePairsSymbolKeys) {
         self.instance_variables = Some(instance_variables);
     }
 
 
-    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+    pub fn get_instance_variables(&self) -> &Option<ValuePairsSymbolKeys> {
         &self.instance_variables
     }
 
@@ -760,7 +772,7 @@ impl UserClass {
 pub struct UserDefined {
     class_name: SymbolID,
     data: Vec<u8>,
-    instance_variables: Option<HashMap<SymbolID, RubyValue>>,
+    instance_variables: Option<ValuePairsSymbolKeys>,
 }
 
 impl UserDefined {
@@ -776,12 +788,12 @@ impl UserDefined {
         &self.data
     }
 
-    pub fn set_instance_variables(&mut self, instance_variables: HashMap<SymbolID, RubyValue>) {
+    pub fn set_instance_variables(&mut self, instance_variables: ValuePairsSymbolKeys) {
         self.instance_variables = Some(instance_variables);
     }
 
 
-    pub fn get_instance_variables(&self) -> &Option<HashMap<SymbolID, RubyValue>> {
+    pub fn get_instance_variables(&self) -> &Option<ValuePairsSymbolKeys> {
         &self.instance_variables
     }
 
