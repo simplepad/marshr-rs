@@ -7,4 +7,6 @@ edition = "2021"
 
 [dependencies]
 encoding = "0.2.33"
+indexmap = "2.5.0"
 libc = "0.2.155"
+paste = "1.0.15"

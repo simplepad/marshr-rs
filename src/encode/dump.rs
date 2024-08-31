@@ -76,7 +76,6 @@ impl<'a, T: Write> Dumper<'a, T> {
 
     fn dump_value(&mut self, root: &Root, object: &RubyValue) -> Result<(), DumpError> {
         match object {
-            RubyValue::Uninitialized(_) => panic!("Tried to dump uninitialized object"),
             RubyValue::Nil => self.write(&[b'0']),
             RubyValue::Boolean(boolean) => if *boolean { self.write(&[b'T']) } else { self.write(&[b'F']) },
             RubyValue::FixNum(fixnum) => { self.write(&[b'i'])?; self.write_fixnum(*fixnum) },
@@ -535,6 +534,7 @@ mod tests {
     fn test_write_array() {
         assert_output_is!(b"\x04\x08[\x00");
         assert_output_is!(b"\x04\x08[\x07i\x7fi\x7f");
+        assert_output_is!(b"\x04\x08[\x07f\x082.5@\x06");
     }
 
     #[test]

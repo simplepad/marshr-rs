@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt::Display, io::Read};
+use std::{fmt::Display, io::{BufRead, Read}};
+
 use crate::values::*;
 
 #[derive(Debug)]
@@ -38,7 +39,7 @@ pub struct Loader<'a, T: Read> {
     objects: Vec<RubyObject>,
 }
 
-impl<'a, T: Read> Loader<'a, T> {
+impl<'a, T: BufRead> Loader<'a, T> {
     pub fn new(reader: &'a mut T) -> Self {
         Self {
             reader,
@@ -64,9 +65,9 @@ impl<'a, T: Read> Loader<'a, T> {
             return Err(LoadError::ParserError("Unsupported Marshal version".to_string()));
         }
 
-        let value = self.read_value()?;
+        let root = self.read_value()?;
 
-        Ok(Root::new(value, self.symbols.clone(), self.objects.clone()))
+        Ok(Root::new(root, self.symbols.clone(), self.objects.clone()))
     }
 
     fn read_value(&mut self) -> Result<RubyValue, LoadError> {
@@ -142,7 +143,7 @@ impl<'a, T: Read> Loader<'a, T> {
                 Ok(n)
             }
         } else {
-            let value = i8::from_le_bytes([int_len]);
+            let value = i8::from_le_bytes([buffer[0]]);
 
             if value > 0 {
                 Ok(value as i32 - 5)
@@ -193,7 +194,7 @@ impl<'a, T: Read> Loader<'a, T> {
             Err(_) => return Err(LoadError::ParserError("Could not parse array length (could not convert array length to usize)".to_string())),
         };
 
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::Array));
         let array_id = self.objects.len()-1;
 
         let mut array = Vec::with_capacity(array_len);
@@ -208,17 +209,9 @@ impl<'a, T: Read> Loader<'a, T> {
 
     fn read_float(&mut self) -> Result<ObjectID, LoadError> {
         let float_sequence = self.read_byte_sequence()?;
-
-        if let Ok(float_str) = std::str::from_utf8(&float_sequence) {
-            if let Ok(float_value) = float_str.parse() {
-                self.objects.push(RubyObject::Float(float_value));
-                Ok(self.objects.len()-1)
-            } else {
-                Err(LoadError::ParserError("Could not parse float from float string".to_string()))
-            }
-        } else {
-            Err(LoadError::ParserError("Could not parse float as valid utf-8".to_string()))
-        }
+        let float_value: f64 = unsafe { libc::strtod(float_sequence.as_ptr() as *const i8, std::ptr::null_mut()) };
+        self.objects.push(RubyObject::Float(float_value));
+        Ok(self.objects.len()-1)
     }
 
     fn read_object_link(&mut self) -> Result<RubyValue, LoadError> {
@@ -229,7 +222,18 @@ impl<'a, T: Read> Loader<'a, T> {
 
         if let Some(object) = self.objects.get(object_id) {
             let ruby_value = match object {
-                RubyObject::Empty => RubyValue::Uninitialized(object_id), // recursion
+                RubyObject::Incomplete(object_type) => { // recursion
+                    match object_type {
+                        IncompleteObject::Array => RubyValue::Array(object_id),
+                        IncompleteObject::Hash => RubyValue::Hash(object_id),
+                        IncompleteObject::HashWithDefault => RubyValue::HashWithDefault(object_id),
+                        IncompleteObject::Struct => RubyValue::Struct(object_id),
+                        IncompleteObject::Object => RubyValue::Object(object_id),
+                        IncompleteObject::UserClass => RubyValue::UserClass(object_id),
+                        IncompleteObject::UserDefined => RubyValue::UserDefined(object_id),
+                        IncompleteObject::UserMarshal => RubyValue::UserMarshal(object_id),
+                    }
+                },
                 RubyObject::Array(_) => RubyValue::Array(object_id),
                 RubyObject::Float(_) => RubyValue::Float(object_id),
                 RubyObject::Hash(_) => RubyValue::Hash(object_id),
@@ -258,7 +262,7 @@ impl<'a, T: Read> Loader<'a, T> {
             Err(_) => return Err(LoadError::ParserError("Could not parse number of key:value pairs (could not convert number of pairs to usize)".to_string())),
         };
 
-        let mut pairs = HashMap::with_capacity(num_of_pairs);
+        let mut pairs = ValuePairs::with_capacity(num_of_pairs);
 
         for _ in 0..num_of_pairs {
             let key = self.read_value()?;
@@ -276,7 +280,7 @@ impl<'a, T: Read> Loader<'a, T> {
             Err(_) => return Err(LoadError::ParserError("Could not parse number of key:value pairs (could not convert number of pairs to usize)".to_string())),
         };
 
-        let mut pairs = HashMap::with_capacity(num_of_pairs);
+        let mut pairs = ValuePairsSymbolKeys::with_capacity(num_of_pairs);
 
         for _ in 0..num_of_pairs {
             let symbol = match self.read_value()? {
@@ -292,7 +296,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_hash(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::Hash));
         let hash_id = self.objects.len()-1;
 
         let hash = self.read_value_pairs()?;
@@ -302,7 +306,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_hash_with_default(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::HashWithDefault));
         let hash_id = self.objects.len()-1;
 
         let hash = self.read_value_pairs()?;
@@ -439,7 +443,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_struct(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::Struct));
         let struct_id = self.objects.len()-1;
 
         let name = match self.read_value()? {
@@ -454,7 +458,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_object(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::Object));
         let object_id = self.objects.len()-1;
 
         let class_name = match self.read_value()? {
@@ -469,7 +473,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_user_class(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::UserClass));
         let user_class_id = self.objects.len()-1;
 
         let name = match self.read_value()? {
@@ -484,7 +488,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_user_defined(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::UserDefined));
         let user_defined_id = self.objects.len()-1;
 
         let class_name = match self.read_value()? {
@@ -499,7 +503,7 @@ impl<'a, T: Read> Loader<'a, T> {
     }
 
     fn read_user_marshal(&mut self) -> Result<ObjectID, LoadError> {
-        self.objects.push(RubyObject::Empty);
+        self.objects.push(RubyObject::Incomplete(IncompleteObject::UserMarshal));
         let user_marshal_id = self.objects.len()-1;
 
         let class_name = match self.read_value()? {
@@ -569,6 +573,13 @@ mod tests {
         let result = loader.load();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(0));
+
+        let input = b"\x04\x08i\xfa";
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
+        let result = loader.load();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().get_root(), &RubyValue::FixNum(-1));
 
         let input = b"\x04\x08i\x7f";
         let mut reader = BufReader::new(&input[..]);
@@ -849,6 +860,28 @@ mod tests {
         }
         assert_eq!(result.get_objects().len(), 2);
 
+    }
+
+    #[test]
+    fn test_read_object_link() {
+        let input = b"\x04\x08[\x07f\x082.5@\x06";
+        let mut reader = BufReader::new(&input[..]);
+        let mut loader = Loader::new(&mut reader);
+        let result = loader.load().unwrap();
+
+        let array = result.get_root().as_array();
+
+        assert_eq!(array, 0);
+
+        let val1 = &result.get_object(array).unwrap().as_array()[0].as_float();
+        let val2 = &result.get_object(array).unwrap().as_array()[1].as_float();
+
+        assert_eq!(val1, val2);
+
+        let val1 = *result.get_object(*val1).unwrap().as_float();
+        let val2 = *result.get_object(*val2).unwrap().as_float();
+
+        assert_eq!(val1, val2);
     }
 
     #[test]
